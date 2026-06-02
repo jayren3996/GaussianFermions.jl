@@ -2,46 +2,36 @@ include("../src/GaussianFermions.jl")
 using LinearAlgebra, Main.GaussianFermions
 
 #--------------------------------------------------------------------------------
-# Minimal free-fermion example: unitary evolution + monitored (quantum-jump)
-# trajectory on a 1D hopping chain.
+# Minimal tour of the number-conserving API:
+#   states & observables → unitary evolution → a monitored quantum trajectory →
+#   an ensemble average.
 #--------------------------------------------------------------------------------
-"""
-Hopping Hamiltonian on a chain of length `L`:
-    H = ∑ᵢ (cᵢ⁺cᵢ₊₁ + h.c.)
-"""
-function hopping_ham(L::Integer; PBC::Bool=false)
-    H = diagm(1 => ones(L-1), -1 => ones(L-1))
-    PBC && (H[L, 1] = H[1, L] = 1)
-    H
-end
 
-"""
-Run a single monitored trajectory: alternate unitary hopping with
-local occupation measurements (`QJParticle` jumps), returning the
-site-resolved density at each step.
-"""
-function trajectory(; L=32, γ=0.5, dt=0.05, T=20.0, PBC=true)
-    U  = evo_operator(Hermitian(hopping_ham(L; PBC)), dt)        # exp(-i H dt)
-    js = [QJParticle(QuasiMode([i], [1.0 + 0im], L), γ * dt) for i in 1:L]
-    s  = FreeFermionState(L=L, N=L÷2, config="Z2")
-    N  = round(Int, T / dt)
-    den = zeros(L, N)
-    for k in 1:N
-        apply!(U, s)            # unitary step
-        apply!(js, s)           # one monitoring step (jump or no-jump back-action)
-        den[:, k] = diag(s)     # ⟨nᵢ⟩
-    end
-    den
-end
+# --- states & observables ---
+s = SlaterState(L=8, N=4, config="Z2")
+println("occupation:        ", round.(density(s); digits=3))
+println("particle number:   ", particle_number(s))
+println("half-chain S:      ", round(entanglement_entropy(s, 1:4); digits=4))
 
-#--------------------------------------------------------------------------------
-# Quick sanity check when run as a script.
-#--------------------------------------------------------------------------------
-let
-    s = FreeFermionState(L=8, N=4, config="Z2")
-    println("Initial occupation: ", round.(diag(s); digits=3))
-    println("Particle number:    ", rank(s))
-    println("Half-chain entropy: ", round(ent_S(s, 1:4); digits=4))
-    den = trajectory(L=16, T=5.0)
-    println("Final occupation (monitored): ", round.(den[:, end]; digits=3))
+# --- unitary evolution under a hopping chain ---
+H = hopping(8; pbc=true)                 # H = Σ c†ᵢcᵢ₊₁ + h.c.
+evolve!(s, H, 1.0)
+println("after evolve, S:   ", round(entanglement_entropy(s, 1:4); digits=4),
+        "  (N conserved: ", particle_number(s), ")")
+
+# --- a single monitored (quantum-jump) trajectory: occupation monitoring ---
+st = SlaterState(L=16, N=8, config="Z2")
+chans = [dephasing(i, 16; γ=0.5) for i in 1:16]
+for _ in 1:100
+    step!(st, hopping(16; pbc=true), chans, 0.05)
 end
+println("monitored traj S:  ", round(entanglement_entropy(st, 1:8); digits=4))
+
+# --- ensemble average of the entanglement entropy over many trajectories ---
+res = ensemble(() -> SlaterState(L=16, N=8, config="Z2"),
+               hopping(16; pbc=true),
+               [dephasing(i, 16; γ=0.5) for i in 1:16];
+               ntraj=64, tspan=5.0, dt=0.05,
+               observables=(S = s -> entanglement_entropy(s, 1:8),))
+println("ensemble ⟨S⟩(t=5): ", round(res.mean.S[end]; digits=4),
+        " ± ", round(res.std.S[end] / sqrt(res.ntraj); digits=4))

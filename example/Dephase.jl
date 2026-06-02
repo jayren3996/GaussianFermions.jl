@@ -1,150 +1,95 @@
 include("../src/GaussianFermions.jl")
-using LinearAlgebra, Main.GaussianFermions, Plots
+using LinearAlgebra, SparseArrays, Main.GaussianFermions
+
 #--------------------------------------------------------------------------------
-# Dephasing model
+# Dephasing model: cross-check the (new) number-conserving trajectory engine
+# against the (stage-2) covariance-matrix Lindblad master equation.
+#
+#   H   = Σ cᵢ⁺cᵢ₊₁ + h.c.            (hopping chain)
+#   Lᵢ  = √γ dᵢ⁺dᵢ ,  dᵢ⁺ = Σₐ dₐ cᵢ₊ₐ⁺   (occupation monitoring of nodal modes)
+#
+# All four methods (quantum jump, QSD, Majorana Lindblad, Dirac Lindblad) must
+# give the same averaged site density n(t).
 #--------------------------------------------------------------------------------
-"""
-Hopping Hamiltonian:
-    H = ∑ cᵢ⁺cᵢ₊₁ + cᵢ₊₁⁺cᵢ.
-"""
-function H_evo(;L, dt, PBC)
-    H = diagm(1 => ones(L-1), -1 => ones(L-1))
-    PBC && (H[L,1] = H[1,L] = 1)
-    evo_operator(Hermitian(H), dt)
-end
-#--------------------------------------------------------------------------------
-"""
-Jump operator
-    Lᵢ = ∑ₐ dₐ cᵢ₊ₐ 
-"""
-function qparticles(d, L)
-    nd = normalize(d)
-    num = length(d) 
+
+"Monitoring modes dᵢ⁺ = Σₐ dₐ cᵢ₊ₐ⁺ (one block of `length(d)` sites per mode)."
+function monitor_modes(d, L)
+    nd = normalize(ComplexF64.(d))
+    num = length(d)
     [QuasiMode(i:i+num-1, nd, L) for i in 1:num:L-num+1]
 end
 
+#--------------------------------------------------------------------------------
+# Trajectory methods (new number-conserving API)
+#--------------------------------------------------------------------------------
+"Quantum-jump (MCWF) trajectory average of the site density."
+function jump_den_evo(; L=32, γ=0.5, dt=0.05, T=10.0, ntraj=300, d=[1, 3, 1])
+    H = hopping(L; pbc=false)
+    chans = [OccupationMonitor(qm; γ=γ) for qm in monitor_modes(d, L)]
+    res = ensemble(() -> SlaterState(L=L, N=L ÷ 2, config="left"), H, chans;
+                   ntraj=ntraj, tspan=T, dt=dt, observables=(n=density,))
+    reduce(hcat, res.mean.n)            # L × nsteps
+end
 
-#--------------------------------------------------------------------------------
-# Quantum trajectory
-#--------------------------------------------------------------------------------
-"""
-Using quantum jump method.
-"""
-function jump_den_evo(;
-    L=32, γ=0.5, dt=0.05, T=20, 
-    times=64, PBC=false, 
-    d=[1,1,1]
-)
-    Ut = H_evo(;L, dt, PBC)
-    ls = QJParticle.(qparticles(d, L), γ * dt)
-    s0 = FreeFermionState(L=L, N=L÷2, config="left")
-    N = round(Int, T/dt)
-    out = map(1:times) do _
-        s = deepcopy(s0)
-        den = zeros(L, N)
-        for k = 1:N 
-            apply!(Ut, s)
-            apply!(ls, s)
-            den[:, k] = diag(s)
+"Quantum-state-diffusion trajectory average of the site density."
+function qsd_den_evo(; L=32, γ=0.5, dt=0.05, T=10.0, ntraj=300, d=[1, 3, 1])
+    U = propagator(hopping(L; pbc=false), dt)
+    chans = [OccupationMonitor(qm; γ=γ) for qm in monitor_modes(d, L)]
+    N = round(Int, T / dt)
+    acc = zeros(L, N)
+    for _ in 1:ntraj
+        s = SlaterState(L=L, N=L ÷ 2, config="left")
+        for k in 1:N
+            evolve!(s, U)
+            step_diffusive!(s, chans, dt)
+            acc[:, k] .+= density(s)
         end
-        den
     end
-    sum(out) / times
-end
-#--------------------------------------------------------------------------------
-"""
-using quantum state diffusion.
-"""
-function qsd_den_evo(;
-    L=32, γ=0.5, dt=0.05, T=20, 
-    times=64, PBC=false,
-    d=[1,1,1], threads=false
-)
-    Ut = H_evo(;L, dt, PBC)
-    qms = qparticles(d, L)
-    s0 = FreeFermionState(L=L, N=L÷2, config="left")
-    N = round(Int, T/dt)
-    out = map(1:times) do _
-        s = deepcopy(s0)
-        den = zeros(L, N)
-        for k = 1:N 
-            apply!(Ut, s)
-            wiener!(qms, s, γ*dt; threads)
-            den[:, k] = diag(s)
-        end
-        den
-    end
-    sum(out) / times
+    acc ./ ntraj
 end
 
 #--------------------------------------------------------------------------------
-# Lindbladian
+# Deterministic Lindblad (covariance / correlation matrix — Quadratic.jl, unchanged)
 #--------------------------------------------------------------------------------
-function majorana_den_evo(;
-    L=32, γ=0.5, dt=0.05, T=20, PBC=false, d=[1,1,1]
-)
-    lind = begin
-        H = diagm(1 => ones(L-1), -1 => ones(L-1))
-        PBC && (H[L,1] = H[1,L] = 1)
-        nd = normalize(d)
-        num = length(d)
-        mat = sqrt(γ) * nd * nd' 
-        I = [i:i+num-1 for i in 1:num:L-num+1]
-        M = fill(mat, length(I))
-        quadraticlindblad_from_fermion(;H, M, I)
-    end
-    Γ = covariancematrix([ones(Int,L÷2); zeros(Int,L÷2)])
+function _lind_builder(L, γ, d)
+    H = diagm(1 => ones(L - 1), -1 => ones(L - 1))
+    nd = normalize(d)
+    num = length(d)
+    mat = sqrt(γ) * nd * nd'
+    I_ = [i:i+num-1 for i in 1:num:L-num+1]
+    M = fill(mat, length(I_))
+    H, M, I_
+end
+
+function majorana_den_evo(; L=32, γ=0.5, dt=0.05, T=10.0, d=[1, 3, 1])
+    H, M, I_ = _lind_builder(L, γ, d)
+    lind = quadraticlindblad_from_fermion(; H=H, M=M, I=I_)
+    Γ = covariancematrix([ones(Int, L ÷ 2); zeros(Int, L ÷ 2)])
     t = dt:dt:T
-    sol = lindblad_evo(lind, Γ, t)
-    den = zeros(L,length(t))
-    for i in eachindex(t)
-        C = fermioncorrelation(sol[i], 1)
-        den[:, i] = real.(diag(C))
-    end
-    den
+    sol = lindblad_evo(lind, Γ, collect(t))
+    reduce(hcat, [real.(diag(fermioncorrelation(sol[i], 1))) for i in eachindex(t)])
+end
+
+function fermion_den_evo(; L=32, γ=0.5, dt=0.05, T=10.0, d=[1, 3, 1])
+    H, M, I_ = _lind_builder(L, γ, d)
+    lind = fermionlindblad(H, M, I_)
+    Γ = diagm([ones(ComplexF64, L ÷ 2); zeros(ComplexF64, L ÷ 2)])
+    t = dt:dt:T
+    sol = lindblad_evo(lind, Γ, collect(t))
+    reduce(hcat, [real.(diag(sol[i])) for i in eachindex(t)])
 end
 
 #--------------------------------------------------------------------------------
-function fermion_den_evo(;
-    L=32, γ=0.5, dt=0.05, T=20, PBC=false, d=[1,1,1]
-)
-    lind = begin
-        H = diagm(1 => ones(L-1), -1 => ones(L-1))
-        PBC && (H[L,1] = H[1,L] = 1)
-        nd = normalize(d)
-        num = length(d)
-        mat = sqrt(γ) * nd * nd' 
-        I = [i:i+num-1 for i in 1:num:L-num+1]
-        M = fill(mat, length(I))
-        fermionlindblad(H, M, I)
-    end
-
-    Γ = diagm([ones(ComplexF64,L÷2); zeros(ComplexF64,L÷2)])
-    t = dt:dt:T
-    sol = lindblad_evo(lind, Γ, t)
-    den = zeros(L,length(t))
-    for i in eachindex(t)
-        den[:, i] = real.(diag(sol[i]))
-    end
-    den
+# trajectory vs Lindblad agreement improves as 1/√ntraj
+function main(; d=[1, 3, 1], ntraj=1000)
+    den_maj = majorana_den_evo(; d)
+    den_fer = fermion_den_evo(; d)
+    println("Majorana vs Dirac Lindblad: ", norm(den_maj - den_fer))
+    den_jmp = jump_den_evo(; d, ntraj)
+    println("Jump   vs Lindblad:         ", norm(den_jmp - den_fer))
+    den_qsd = qsd_den_evo(; d, ntraj)
+    println("QSD    vs Lindblad:         ", norm(den_qsd - den_fer))
+    den_maj, den_fer, den_jmp, den_qsd
 end
 
-function main(;d=[1,3,1],times=1000)
-    # ~ 2.45 s
-    @time den1 = majorana_den_evo(;d)
-    # ~ 1.59 s
-    @time den2 = fermion_den_evo(;d)
-    println("Majorana vs Fermion: $(norm(den1-den2))")
-
-    # ~ 22 s
-    @time den3 = jump_den_evo(;d,times)
-    println("Jump vs Fermion: $(norm(den3-den2))")
-
-    # ~ 21 s
-    @time den4 = qsd_den_evo(;d,times)
-    println("QSD vs Fermion: $(norm(den4-den2))")
-
-    den1, den2, den3, den4 
-end
-
-res = main();
+main();
