@@ -49,7 +49,7 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test_throws ArgumentError SlaterState(th)              # not pure
     end
 
-    @testset "Majorana/BdG foundation states" begin
+    @testset "Majorana/BdG foundation" begin
         occ = [1, 0, 1, 0]
         ms = MajoranaState(occ)
         Γ = covariance_matrix(ms)
@@ -86,6 +86,32 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test_throws ArgumentError MajoranaState(nonfinite)
         unphysical = zeros(4, 4); unphysical[1, 3] = 2.0; unphysical[3, 1] = -2.0
         @test_throws ArgumentError MajoranaState(unphysical)
+
+        K = zeros(Float64, 4, 4)
+        K[1, 3] = 0.7; K[3, 1] = -0.7
+        bdg = BdGHamiltonian(K)
+        O = propagator(bdg, 0.2)
+        @test O * transpose(O) ≈ I(4) atol = 1e-12
+        @test propagator(bdg, 0.2) === propagator(bdg, 0.2)
+        @test_throws ArgumentError BdGHamiltonian(zeros(3, 3))
+        @test_throws ArgumentError BdGHamiltonian(zeros(2, 3))
+        notanti = zeros(4, 4); notanti[1, 2] = 0.1
+        @test_throws ArgumentError BdGHamiltonian(notanti)
+        badK = zeros(4, 4); badK[1, 2] = NaN; badK[2, 1] = -NaN
+        @test_throws ArgumentError BdGHamiltonian(badK)
+
+        Hnc = hopping(4; pbc=true)
+        cstate = CorrelationState(SlaterState(L=4, N=2, config="Z2"))
+        mstate = MajoranaState(cstate)
+        evolve!(cstate, Hnc, 0.37)
+        evolve!(mstate, BdGHamiltonian(Hnc), 0.37)
+        @test normal_correlation(mstate) ≈ correlation_matrix(cstate) atol = 1e-10
+
+        evolved_copy = evolve(mstate, BdGHamiltonian(Hnc), 0.1)
+        @test evolved_copy !== mstate
+        @test covariance_matrix(evolved_copy) != covariance_matrix(mstate)
+
+        @test_throws ArgumentError evolve!(MajoranaState([1, 0]), Matrix(I, 6, 6))
     end
 
     @testset "Observables" begin
