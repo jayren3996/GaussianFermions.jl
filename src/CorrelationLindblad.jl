@@ -84,7 +84,7 @@ end
 
 function _linear_rate_matrix(qm::QuasiMode, L::Integer)
     qm.L == L || throw(ArgumentError("QuasiMode length $(qm.L) does not match system size $L"))
-    v = Vector{ComplexF64}(vector(qm))
+    v = _dense_mode_vector(vector(qm), L)
     v * v'
 end
 
@@ -115,7 +115,7 @@ end
 
 function _dephasing_projector(qm::QuasiMode, L::Integer)
     qm.L == L || throw(ArgumentError("QuasiMode length $(qm.L) does not match system size $L"))
-    v = Vector{ComplexF64}(vector(qm))
+    v = _dense_mode_vector(vector(qm), L)
     conj(v * v')
 end
 
