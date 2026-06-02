@@ -44,15 +44,16 @@ function CorrelationLindblad(h::AbstractMatrix, channels)
     for ch in channels
         ch isa Union{Loss,Gain,OccupationMonitor,HoleMonitor} ||
             throw(ArgumentError("unsupported channel type for CorrelationLindblad: $(typeof(ch))"))
+        γ = _channel_rate(ch)
         ch.mode.L == L ||
             throw(ArgumentError("channel mode length $(ch.mode.L) does not match system size $L"))
         v = Vector{ComplexF64}(vector(ch.mode))
         if ch isa Loss
-            push!(loss_ops, sqrt(ch.γ) .* v)
+            push!(loss_ops, sqrt(γ) .* v)
         elseif ch isa Gain
-            push!(gain_ops, sqrt(ch.γ) .* v)
+            push!(gain_ops, sqrt(γ) .* v)
         else
-            push!(dephasing_ops, (conj(v * v'), ch.γ))
+            push!(dephasing_ops, (conj(v * v'), γ))
         end
     end
 
@@ -61,6 +62,13 @@ end
 
 CorrelationLindblad(H::QuadraticHamiltonian, channels) =
     CorrelationLindblad(Matrix(H.h), channels)
+
+function _channel_rate(ch)
+    γ = Float64(ch.γ)
+    isfinite(γ) && γ ≥ 0 ||
+        throw(ArgumentError("channel rate must be finite and non-negative, got $γ"))
+    γ
+end
 
 function _dense_mode_vector(v::AbstractVector, L::Integer)
     length(v) == L || throw(ArgumentError("mode vector length $(length(v)) does not match system size $L"))
@@ -82,7 +90,8 @@ function _dephasing_entry(op::Tuple, L::Integer)
     length(op) == 2 || throw(ArgumentError("dephasing entries must be (mode_or_projector, gamma)"))
     raw, γ = op
     γf = Float64(γ)
-    γf ≥ 0 || throw(ArgumentError("dephasing rate must be non-negative"))
+    isfinite(γf) && γf ≥ 0 ||
+        throw(ArgumentError("dephasing rate must be finite and non-negative, got $γf"))
     Q = _dephasing_projector(raw, L)
     (γf, Q)
 end
