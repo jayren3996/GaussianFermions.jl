@@ -49,6 +49,45 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test_throws ArgumentError SlaterState(th)              # not pure
     end
 
+    @testset "Majorana/BdG foundation states" begin
+        occ = [1, 0, 1, 0]
+        ms = MajoranaState(occ)
+        Γ = covariance_matrix(ms)
+        @test nmodes(ms) == 4
+        @test size(Γ) == (8, 8)
+        @test eltype(Γ) == Float64
+        @test Γ ≈ -transpose(Γ)
+        @test normal_correlation(ms) ≈ diagm(ComplexF64.(occ))
+        @test anomalous_correlation(ms) ≈ zeros(ComplexF64, 4, 4)
+
+        slater = SlaterState(L=4, N=2, config="Z2")
+        from_slater = MajoranaState(slater)
+        @test normal_correlation(from_slater) ≈ correlation_matrix(slater)
+        @test anomalous_correlation(from_slater) ≈ zeros(ComplexF64, 4, 4) atol = 1e-12
+
+        cmat = ComplexF64[
+            0.6   0.2im
+           -0.2im 0.4
+        ]
+        corr = CorrelationState(cmat)
+        from_corr = MajoranaState(corr)
+        @test normal_correlation(from_corr) ≈ correlation_matrix(corr)
+
+        @test covariance_matrix(ms) !== ms.Gamma
+        Γcopy = covariance_matrix(ms)
+        Γcopy[1, 2] = 99
+        @test covariance_matrix(ms)[1, 2] != 99
+
+        @test_throws ArgumentError MajoranaState(zeros(3, 3))
+        @test_throws ArgumentError MajoranaState(zeros(2, 3))
+        bad = zeros(4, 4); bad[1, 2] = 0.1
+        @test_throws ArgumentError MajoranaState(bad)
+        nonfinite = zeros(4, 4); nonfinite[1, 2] = Inf; nonfinite[2, 1] = -Inf
+        @test_throws ArgumentError MajoranaState(nonfinite)
+        unphysical = zeros(4, 4); unphysical[1, 3] = 2.0; unphysical[3, 1] = -2.0
+        @test_throws ArgumentError MajoranaState(unphysical)
+    end
+
     @testset "Observables" begin
         s = SlaterState([1, 3], 4)
         @test entanglement_entropy(s, 1:2) ≈ 0 atol = 1e-10

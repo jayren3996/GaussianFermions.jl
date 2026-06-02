@@ -1,7 +1,7 @@
 #---------------------------------------------------------------------------------------------------
 # Number-conserving (U(1)) fermionic Gaussian states
 #---------------------------------------------------------------------------------------------------
-export NumberConservingGaussianState, SlaterState, CorrelationState
+export AbstractGaussianState, NumberConservingGaussianState, SlaterState, CorrelationState
 export correlation_matrix, correlation, nmodes, ispure
 export thermalstate, maximally_mixed
 
@@ -23,7 +23,8 @@ Optional fast paths a subtype may specialise:
     correlation_matrix(s, A)  -> restricted block C[A,A]
     correlation(s, i, j)      -> scalar Cᵢⱼ
 """
-abstract type NumberConservingGaussianState{T<:Number} end
+abstract type AbstractGaussianState{T<:Number} end
+abstract type NumberConservingGaussianState{T<:Number} <: AbstractGaussianState{T} end
 
 #---------------------------------------------------------------------------------------------------
 # Pure state — orbital (Slater) form
