@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Exclude example notebooks from GitHub language statistics (Linguist)
+*.ipynb linguist-documentation
+example/* linguist-documentation
