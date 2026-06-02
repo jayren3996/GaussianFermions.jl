@@ -95,3 +95,69 @@ end
 
 lindblad_rhs(Liouv::CorrelationLindblad, s::CorrelationState) =
     lindblad_rhs(Liouv, correlation_matrix(s))
+
+function _affine_generator(Liouv::CorrelationLindblad)
+    if Liouv.cache !== nothing
+        return Liouv.cache
+    end
+
+    L = size(Liouv.h, 1)
+    n = L * L
+    Czero = zeros(ComplexF64, L, L)
+    b = vec(lindblad_rhs(Liouv, Czero))
+    M = zeros(ComplexF64, n, n)
+    for k in 1:n
+        E = zeros(ComplexF64, L, L)
+        E[k] = 1
+        M[:, k] .= vec(lindblad_rhs(Liouv, E)) .- b
+    end
+    Liouv.cache = (M, b)
+    Liouv.cache
+end
+
+function _hermitian_correlation(C::AbstractMatrix)
+    Cs = (Matrix{ComplexF64}(C) + Matrix{ComplexF64}(C)') / 2
+    Hermitian(Cs)
+end
+
+function evolve!(s::CorrelationState, Liouv::CorrelationLindblad, dt::Real; method::Symbol=:expm)
+    method == :expm || throw(ArgumentError("unsupported CorrelationLindblad evolution method: $method"))
+    M, b = _affine_generator(Liouv)
+    n = length(b)
+    A = zeros(ComplexF64, n + 1, n + 1)
+    A[1:n, 1:n] .= M
+    A[1:n, n + 1] .= b
+    y = exp(dt .* A) * vcat(vec(correlation_matrix(s)), one(ComplexF64))
+    L = nmodes(s)
+    s.C = _hermitian_correlation(reshape(y[1:n], L, L))
+    s
+end
+
+evolve(s::CorrelationState, Liouv::CorrelationLindblad, dt::Real; kwargs...) =
+    evolve!(copy(s), Liouv, dt; kwargs...)
+
+function steadystate(Liouv::CorrelationLindblad; atol::Real=1e-10, rtol::Real=1e-8, check_unique::Bool=true)
+    M, b = _affine_generator(Liouv)
+    if check_unique && rank(M; atol) < size(M, 1)
+        throw(ArgumentError("CorrelationLindblad steady state is not unique; the dense generator is singular"))
+    end
+
+    x = try
+        -(M \ b)
+    catch err
+        throw(ArgumentError("CorrelationLindblad steady-state solve failed: $(err)"))
+    end
+
+    L = size(Liouv.h, 1)
+    C = Matrix(_hermitian_correlation(reshape(x, L, L)))
+    residual = norm(lindblad_rhs(Liouv, C))
+    scale = max(norm(C), one(Float64))
+    residual ≤ atol + rtol * scale ||
+        throw(ArgumentError("CorrelationLindblad steady-state residual $residual exceeds tolerance"))
+
+    vals = real.(eigvals(Hermitian(C)))
+    all(vals .≥ -sqrt(atol)) && all(vals .≤ 1 + sqrt(atol)) ||
+        throw(ArgumentError("CorrelationLindblad steady state is outside the physical occupation range"))
+
+    CorrelationState(Hermitian(C))
+end

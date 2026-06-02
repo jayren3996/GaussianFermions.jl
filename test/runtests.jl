@@ -143,6 +143,34 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
                                            dephasing_ops=[(v, 0.3)])
         Q = conj(v * v')
         @test complex_deph.dephasing[1][2] ≈ Q
+
+        H2 = hopping(4; pbc=true)
+        s_unitary = CorrelationState(SlaterState(L=4, N=2, config="Z2"))
+        s_det = copy(s_unitary)
+        evolve!(s_unitary, H2, 0.3)
+        evolve!(s_det, CorrelationLindblad(H2), 0.3)
+        @test correlation_matrix(s_det) ≈ correlation_matrix(s_unitary) atol = 1e-10
+
+        loss_ss = steadystate(loss_lind)
+        @test density(loss_ss) ≈ [0.0] atol = 1e-10
+        filled = CorrelationState([1.0])
+        evolve!(filled, loss_lind, 20.0)
+        @test density(filled)[1] < 1e-5
+
+        gain_ss = steadystate(gain_lind)
+        @test density(gain_ss) ≈ [1.0] atol = 1e-10
+        empty = CorrelationState([0.0])
+        evolve!(empty, gain_lind, 30.0)
+        @test density(empty)[1] > 1 - 1e-5
+
+        balanced_ss = steadystate(both_lind)
+        @test density(balanced_ss) ≈ [0.25] atol = 1e-10
+
+        cdecay = CorrelationState(ComplexF64[0.5 0.25; 0.25 0.5])
+        evolve!(cdecay, deph_lind, 5.0)
+        @test density(cdecay) ≈ [0.5, 0.5] atol = 1e-10
+        @test abs(correlation(cdecay, 1, 2)) < 0.25
+        @test_throws ArgumentError steadystate(deph_lind)
     end
 
     @testset "Channels & trajectories" begin
