@@ -5,7 +5,7 @@ using DelimitedFiles, LinearAlgebra, Main.GaussianFermions
 H = ∑ cᵢ⁺cᵢ₊₁ + cᵢ₊₁⁺cᵢ.
 """
 function hopping_ham(L::Integer; PBC::Bool=false)
-    H = diagm(1 => ones(L-1), 1 => ones(L-1))
+    H = diagm(1 => ones(L-1), -1 => ones(L-1))
     PBC && (H[L,1] = H[1,L] = 1)
     H
 end

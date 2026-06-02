@@ -373,7 +373,7 @@ function apply!(qj::QJParticle, s::FreeFermionState, p::AbstractVector; renorm::
     return s
 end
 function apply!(qj::QJHole, s::FreeFermionState, p::AbstractVector; renorm::Bool=true)        # L = dd⁺
-    s.B = avoid_vector!(s.B, vector(qj.M), p; renorm)
+    avoid_vector!(s.B, vector(qj.M), p)
     renorm && normalize!(s)
     return s
 end
@@ -411,9 +411,9 @@ Note that indices of the jumps should have no overlap.
 """
 function apply!(qjs::AbstractVector{<:QuantumJump}, s::FreeFermionState)
     normQ = true
-    v = Vector{ComplexF64}(undef, size(s.B, 2))
     for qj in qjs
-        inner!(v, qj.M, s)
+        # allocate per jump: QJDrain/QJSource change the number of columns of B
+        v = inner(qj.M, s)
         if rand() < real(dot(v, v)) * qj.γdt
             apply!(qj, s, v)
             normQ = true
@@ -460,11 +460,11 @@ Note that indices of the jumps should have no overlap.
 """
 function apply!(cjs::AbstractVector{<:ConditionalJump}, s::FreeFermionState)
     normQ = true
-    v = Vector{ComplexF64}(undef, size(s.B, 2))
     for cj in cjs
         qj = cj.J
         ind = qj.M.I
-        inner!(v, qj.M, s)
+        # allocate per jump: QJDrain/QJSource change the number of columns of B
+        v = inner(qj.M, s)
         if rand() < real(dot(v, v)) * qj.γdt
             apply!(qj, s, v)
             apply!(cj.U, s, ind)
@@ -552,8 +552,8 @@ struct ConditionalMeasure{T<:QuasiMode, Tm1<:AbstractMatrix, Tm2<:AbstractMatrix
 end
 #----------------------------------------------------------------------------------------------------
 function apply!(cm::ConditionalMeasure, s::FreeFermionState)
-    q = measure(cm.M, s)
-    apply!(q ? cm.Ut : cm.Uf, s, cj.M.I; threads=true)
+    q = measure!(cm.M, s)
+    apply!(q ? cm.Ut : cm.Uf, s, cm.M.I; threads=true)
     q
 end
 

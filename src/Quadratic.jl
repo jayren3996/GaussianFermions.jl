@@ -96,10 +96,11 @@ end
 function vonneumann_entropy(vals::AbstractVector{<:Real})
     EE = 0.0
     for x in vals
-        x > 1.0 && x < 1.000001 && error("Got an invalid value λ = $x.")
-        a = (1+x)/2
+        x > 1.0 + 1e-6 && error("Got an invalid value λ = $x.")
+        a = (1 + x) / 2
         b = 1 - a
-        EE -= a*log(a) + b*logb
+        (a < 1e-14 || b < 1e-14) && continue
+        EE -= a * log(a) + b * log(b)
     end
     EE
 end
@@ -260,7 +261,7 @@ end
 #---------------------------------------------------------------------------------------------------
 function *(fl::FermionLindblad, G::AbstractMatrix)
     out = G * fl.X
-    out .+= out'
+    out = out + out'
     for (i, ind) in enumerate(fl.I)
         out[ind, ind] .+= fl.Z[i] * G[ind, ind] * fl.Z[i]
     end
