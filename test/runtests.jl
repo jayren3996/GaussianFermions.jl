@@ -99,6 +99,49 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test a.B ≈ b.B
     end
 
+    @testset "CorrelationLindblad" begin
+        unitmode(L, i) = (v = zeros(ComplexF64, L); v[i] = 1; v)
+
+        L = 3
+        H = hopping(L; pbc=false)
+        C0 = ComplexF64[
+            0.6   0.2im 0.0
+           -0.2im 0.4   0.1
+            0.0   0.1   0.3
+        ]
+        C0 = (C0 + C0') / 2
+
+        lind_h = CorrelationLindblad(H)
+        @test lindblad_rhs(lind_h, C0) ≈ im * conj(Matrix(H.h)) * C0 - im * C0 * transpose(Matrix(H.h))
+
+        loss_lind = CorrelationLindblad(zeros(ComplexF64, 1, 1); loss_ops=[sqrt(0.7) * unitmode(1, 1)])
+        @test lindblad_rhs(loss_lind, ComplexF64[1;;]) ≈ ComplexF64[-0.7;;]
+        @test lindblad_rhs(loss_lind, CorrelationState([1.0])) ≈ ComplexF64[-0.7;;]
+
+        gain_lind = CorrelationLindblad(zeros(ComplexF64, 1, 1); gain_ops=[sqrt(0.4) * unitmode(1, 1)])
+        @test lindblad_rhs(gain_lind, ComplexF64[0;;]) ≈ ComplexF64[0.4;;]
+        @test lindblad_rhs(gain_lind, ComplexF64[1;;]) ≈ ComplexF64[0;;] atol = 1e-12
+
+        both_lind = CorrelationLindblad(zeros(ComplexF64, 1, 1);
+                                        loss_ops=[sqrt(0.6) * unitmode(1, 1)],
+                                        gain_ops=[sqrt(0.2) * unitmode(1, 1)])
+        @test lindblad_rhs(both_lind, ComplexF64[0.25;;]) ≈ ComplexF64[0;;] atol = 1e-12
+
+        deph_lind = CorrelationLindblad(zeros(ComplexF64, 2, 2);
+                                        dephasing_ops=[(unitmode(2, 1), 0.5)])
+        Ccoh = ComplexF64[0.5 0.25; 0.25 0.5]
+        dC = lindblad_rhs(deph_lind, Ccoh)
+        @test diag(dC) ≈ [0, 0] atol = 1e-12
+        @test dC[1, 2] ≈ -0.25 * 0.5 / 2 atol = 1e-12
+        @test dC[2, 1] ≈ -0.25 * 0.5 / 2 atol = 1e-12
+
+        v = ComplexF64[1, im] / sqrt(2)
+        complex_deph = CorrelationLindblad(zeros(ComplexF64, 2, 2);
+                                           dephasing_ops=[(v, 0.3)])
+        Q = conj(v * v')
+        @test complex_deph.dephasing[1][2] ≈ Q
+    end
+
     @testset "Channels & trajectories" begin
         Random.seed!(42)
         L = 8
