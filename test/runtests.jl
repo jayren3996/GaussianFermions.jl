@@ -142,6 +142,10 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test_throws ArgumentError CorrelationLindblad(zeros(ComplexF64, 2, 2); dephasing_ops=[1])
         @test_throws ArgumentError CorrelationLindblad(zeros(ComplexF64, 2, 2);
                                                        dephasing_ops=[(unitmode(2, 1), Inf)])
+        @test_throws ArgumentError CorrelationLindblad(zeros(ComplexF64, 1, 1); loss_ops=[ComplexF64[NaN]])
+        @test_throws ArgumentError CorrelationLindblad(zeros(ComplexF64, 1, 1); gain_ops=[ComplexF64[Inf]])
+        @test_throws ArgumentError CorrelationLindblad(zeros(ComplexF64, 1, 1); dephasing_ops=[(ComplexF64[NaN], 1.0)])
+        @test_throws ArgumentError CorrelationLindblad(zeros(ComplexF64, 1, 1); dephasing_ops=[(ComplexF64[Inf;;], 1.0)])
         Ccoh = ComplexF64[0.5 0.25; 0.25 0.5]
         dC = lindblad_rhs(deph_lind, Ccoh)
         @test diag(dC) ≈ [0, 0] atol = 1e-12
@@ -171,6 +175,12 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         hole_lind = CorrelationLindblad(zeros(ComplexF64, 2, 2), [hole_ch])
         @test lindblad_rhs(occ_lind, Ccoh) ≈ lindblad_rhs(deph_lind, Ccoh)
         @test lindblad_rhs(hole_lind, Ccoh) ≈ lindblad_rhs(deph_lind, Ccoh)
+        complex_mode = QuasiMode([1, 2], ComplexF64[1, im] / sqrt(2), 2)
+        complex_monitor = OccupationMonitor(complex_mode; γ=0.3)
+        monitor_lind = CorrelationLindblad(zeros(ComplexF64, 2, 2), [complex_monitor])
+        low_level_monitor_lind = CorrelationLindblad(zeros(ComplexF64, 2, 2);
+                                                     dephasing_ops=[(complex_mode, 0.3)])
+        @test lindblad_rhs(monitor_lind, Ccoh) ≈ lindblad_rhs(low_level_monitor_lind, Ccoh)
 
         @test_throws ArgumentError CorrelationLindblad(zeros(ComplexF64, 2, 2), [loss(1, 3; γ=1.0)])
         @test_throws ArgumentError CorrelationLindblad(zeros(ComplexF64, 1, 1), [loss(1, 1; γ=-1.0)])

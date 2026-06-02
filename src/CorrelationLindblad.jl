@@ -72,7 +72,9 @@ end
 
 function _dense_mode_vector(v::AbstractVector, L::Integer)
     length(v) == L || throw(ArgumentError("mode vector length $(length(v)) does not match system size $L"))
-    Vector{ComplexF64}(v)
+    mode = Vector{ComplexF64}(v)
+    all(isfinite, mode) || throw(ArgumentError("mode vector entries must be finite"))
+    mode
 end
 
 function _linear_rate_matrix(op::AbstractVector, L::Integer)
@@ -106,7 +108,9 @@ end
 
 function _dephasing_projector(P::AbstractMatrix, L::Integer)
     size(P) == (L, L) || throw(ArgumentError("dephasing projector size $(size(P)) does not match ($L, $L)"))
-    Matrix{ComplexF64}(P)
+    projector = Matrix{ComplexF64}(P)
+    all(isfinite, projector) || throw(ArgumentError("dephasing projector entries must be finite"))
+    projector
 end
 
 function _dephasing_projector(qm::QuasiMode, L::Integer)
