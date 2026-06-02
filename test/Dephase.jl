@@ -1,5 +1,5 @@
-include("../src/LindbladEq.jl")
-using LinearAlgebra, Main.LindbladEq, Plots
+include("../src/GaussianFermions.jl")
+using LinearAlgebra, Main.GaussianFermions, Plots
 #--------------------------------------------------------------------------------
 # Dephasing model
 #--------------------------------------------------------------------------------

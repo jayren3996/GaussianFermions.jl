@@ -1,6 +1,6 @@
-include("../src/LindbladEq.jl")
+include("../src/GaussianFermions.jl")
 
-using LinearAlgebra, SparseArrays, Main.LindbladEq
+using LinearAlgebra, SparseArrays, Main.GaussianFermions
 
 function dephasing(;
     L::Integer, γ::Real, d::Vector{<:Number}

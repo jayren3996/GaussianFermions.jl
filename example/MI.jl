@@ -1,5 +1,5 @@
-include("../src/LindbladEq.jl")
-using DelimitedFiles, LinearAlgebra, Main.LindbladEq
+include("../src/GaussianFermions.jl")
+using DelimitedFiles, LinearAlgebra, Main.GaussianFermions
 #--------------------------------------------------------------------------------
 """
 H = ∑ cᵢ⁺cᵢ₊₁ + cᵢ₊₁⁺cᵢ.
