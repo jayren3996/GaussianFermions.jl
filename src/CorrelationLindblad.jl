@@ -35,6 +35,33 @@ end
 
 CorrelationLindblad(H::QuadraticHamiltonian; kwargs...) = CorrelationLindblad(Matrix(H.h); kwargs...)
 
+function CorrelationLindblad(h::AbstractMatrix, channels)
+    L = size(h, 1)
+    loss_ops = Vector{Vector{ComplexF64}}()
+    gain_ops = Vector{Vector{ComplexF64}}()
+    dephasing_ops = Vector{Tuple{Matrix{ComplexF64},Float64}}()
+
+    for ch in channels
+        ch isa Union{Loss,Gain,OccupationMonitor,HoleMonitor} ||
+            throw(ArgumentError("unsupported channel type for CorrelationLindblad: $(typeof(ch))"))
+        ch.mode.L == L ||
+            throw(ArgumentError("channel mode length $(ch.mode.L) does not match system size $L"))
+        v = Vector{ComplexF64}(vector(ch.mode))
+        if ch isa Loss
+            push!(loss_ops, sqrt(ch.γ) .* v)
+        elseif ch isa Gain
+            push!(gain_ops, sqrt(ch.γ) .* v)
+        else
+            push!(dephasing_ops, (conj(v * v'), ch.γ))
+        end
+    end
+
+    CorrelationLindblad(h; loss_ops, gain_ops, dephasing_ops)
+end
+
+CorrelationLindblad(H::QuadraticHamiltonian, channels) =
+    CorrelationLindblad(Matrix(H.h), channels)
+
 function _dense_mode_vector(v::AbstractVector, L::Integer)
     length(v) == L || throw(ArgumentError("mode vector length $(length(v)) does not match system size $L"))
     Vector{ComplexF64}(v)
