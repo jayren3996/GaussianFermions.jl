@@ -14,6 +14,7 @@ include("Trajectory.jl")    # evolution, trajectory engine, ensemble runner
 include("CorrelationLindblad.jl")
 include("MajoranaStates.jl")
 include("BdGHamiltonians.jl")
+include("MajoranaObservables.jl")
 
 # --- Majorana / BdG covariance layer (stage 2; unchanged) ---
 include("Quadratic.jl")

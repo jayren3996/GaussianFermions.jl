@@ -112,6 +112,23 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test covariance_matrix(evolved_copy) != covariance_matrix(mstate)
 
         @test_throws ArgumentError evolve!(MajoranaState([1, 0]), Matrix(I, 6, 6))
+
+        prod_state = MajoranaState([1, 0, 1, 0])
+        @test density(prod_state) ≈ [1, 0, 1, 0]
+        @test particle_number(prod_state) ≈ 2
+        @test particle_number(prod_state, [1, 2]) ≈ 1
+        @test entanglement_entropy(prod_state, [1, 2]) ≈ 0 atol = 1e-12
+        @test renyi_entropy(prod_state, [1, 2]; α=2) ≈ 0 atol = 1e-12
+        @test mutual_information(prod_state, [1], [2]) ≈ 0 atol = 1e-12
+        @test tripartite_information(prod_state, [1], [2], [3]) ≈ 0 atol = 1e-12
+        @test entanglement_spectrum(prod_state, [1, 2]) ≈ [1, 1] atol = 1e-12
+
+        ent_slater = SlaterState([1], 2)
+        evolve!(ent_slater, ComplexF64[1 1; 1 -1] / sqrt(2))
+        ent_majorana = MajoranaState(ent_slater)
+        @test density(ent_majorana) ≈ density(ent_slater)
+        @test entanglement_entropy(ent_majorana, [1]) ≈ entanglement_entropy(ent_slater, [1]) atol = 1e-10
+        @test renyi_entropy(ent_majorana, [1]; α=Inf) ≈ renyi_entropy(ent_slater, [1]; α=Inf) atol = 1e-10
     end
 
     @testset "Observables" begin
