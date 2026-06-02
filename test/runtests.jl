@@ -129,6 +129,21 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test density(ent_majorana) ≈ density(ent_slater)
         @test entanglement_entropy(ent_majorana, [1]) ≈ entanglement_entropy(ent_slater, [1]) atol = 1e-10
         @test renyi_entropy(ent_majorana, [1]; α=Inf) ≈ renyi_entropy(ent_slater, [1]; α=Inf) atol = 1e-10
+
+        A = zeros(ComplexF64, 2, 2)
+        B = zeros(ComplexF64, 2, 2)
+        B[1, 2] = 0.5
+        B[2, 1] = -0.5
+        paired = MajoranaState([0, 0])
+        evolve!(paired, BdGHamiltonian(A, B), 0.4)
+        @test norm(anomalous_correlation(paired)) > 1e-3
+        @test_throws ArgumentError BdGHamiltonian(A, ComplexF64[0 1; 1 0])
+
+        @test !isdefined(GaussianFermions, :covariancematrix)
+        @test !isdefined(GaussianFermions, :fermioncorrelation)
+        @test !isdefined(GaussianFermions, :majoranaform)
+        @test !isdefined(GaussianFermions, :quadraticlindblad)
+        @test !isdefined(GaussianFermions, :lindblad_evo)
     end
 
     @testset "Observables" begin
