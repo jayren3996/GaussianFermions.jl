@@ -3,6 +3,8 @@
 #---------------------------------------------------------------------------------------------------
 export CorrelationLindblad, lindblad_rhs, steadystate
 
+function steadystate end
+
 mutable struct CorrelationLindblad
     h::Hermitian{ComplexF64,Matrix{ComplexF64}}
     damping::Matrix{ComplexF64}
@@ -58,6 +60,9 @@ function _dephasing_entry(op::Tuple, L::Integer)
     (γf, Q)
 end
 
+_dephasing_entry(op, L::Integer) =
+    throw(ArgumentError("dephasing entries must be (mode_or_projector, gamma)"))
+
 function _dephasing_projector(v::AbstractVector, L::Integer)
     mode = _dense_mode_vector(v, L)
     conj(mode * mode')
@@ -76,6 +81,8 @@ end
 
 function lindblad_rhs(Liouv::CorrelationLindblad, C::AbstractMatrix)
     Cmat = Matrix{ComplexF64}(C)
+    size(Cmat) == size(Liouv.h) ||
+        throw(ArgumentError("correlation matrix size $(size(Cmat)) does not match system size $(size(Liouv.h))"))
     h = Matrix(Liouv.h)
     dC = im .* (conj(h) * Cmat) .- im .* (Cmat * transpose(h))
     dC .+= Liouv.source

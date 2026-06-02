@@ -101,6 +101,7 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
 
     @testset "CorrelationLindblad" begin
         unitmode(L, i) = (v = zeros(ComplexF64, L); v[i] = 1; v)
+        @test isdefined(GaussianFermions, :steadystate)
 
         L = 3
         H = hopping(L; pbc=false)
@@ -113,6 +114,7 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
 
         lind_h = CorrelationLindblad(H)
         @test lindblad_rhs(lind_h, C0) ≈ im * conj(Matrix(H.h)) * C0 - im * C0 * transpose(Matrix(H.h))
+        @test_throws ArgumentError lindblad_rhs(lind_h, zeros(ComplexF64, 2, 2))
 
         loss_lind = CorrelationLindblad(zeros(ComplexF64, 1, 1); loss_ops=[sqrt(0.7) * unitmode(1, 1)])
         @test lindblad_rhs(loss_lind, ComplexF64[1;;]) ≈ ComplexF64[-0.7;;]
@@ -129,6 +131,7 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
 
         deph_lind = CorrelationLindblad(zeros(ComplexF64, 2, 2);
                                         dephasing_ops=[(unitmode(2, 1), 0.5)])
+        @test_throws ArgumentError CorrelationLindblad(zeros(ComplexF64, 2, 2); dephasing_ops=[1])
         Ccoh = ComplexF64[0.5 0.25; 0.25 0.5]
         dC = lindblad_rhs(deph_lind, Ccoh)
         @test diag(dC) ≈ [0, 0] atol = 1e-12
