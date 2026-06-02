@@ -39,3 +39,28 @@ steady = steadystate(CorrelationLindblad(zeros(ComplexF64, 1, 1);
                                         gain_ops=[ComplexF64[sqrt(0.2)]]))
 density(steady)  # ≈ [0.25]
 ```
+
+## Majorana/BdG Foundation
+
+General quadratic (BdG/Majorana) Gaussian states use `MajoranaState`, which stores
+the real antisymmetric Majorana covariance matrix. `BdGHamiltonian` evolves this
+covariance under dense unitary dynamics.
+
+```julia
+using GaussianFermions
+
+state = MajoranaState([1, 0, 1, 0])
+A = zeros(ComplexF64, 4, 4)
+B = zeros(ComplexF64, 4, 4)
+B[1, 2] = 0.3
+B[2, 1] = -0.3
+
+H = BdGHamiltonian(A, B)
+evolve!(state, H, 0.5)
+
+normal_correlation(state)
+anomalous_correlation(state)
+```
+
+Majorana/BdG Lindblad dynamics and trajectory support are planned as later Stage 2
+slices.
