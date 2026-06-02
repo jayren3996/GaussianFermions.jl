@@ -124,6 +124,14 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test lindblad_rhs(gain_lind, ComplexF64[0;;]) ≈ ComplexF64[0.4;;]
         @test lindblad_rhs(gain_lind, ComplexF64[1;;]) ≈ ComplexF64[0;;] atol = 1e-12
 
+        mutated_lind = CorrelationLindblad(zeros(ComplexF64, 1, 1); loss_ops=[sqrt(0.7) * unitmode(1, 1)])
+        evolve!(CorrelationState([1.0]), mutated_lind, 0.1)
+        mutated_lind.source[1, 1] = 0.7
+        mutated_lind.damping[1, 1] = 0.7
+        mutated_state = CorrelationState([0.0])
+        evolve!(mutated_state, mutated_lind, 1.0)
+        @test density(mutated_state) ≈ [1 - exp(-0.7)] atol = 1e-10
+
         both_lind = CorrelationLindblad(zeros(ComplexF64, 1, 1);
                                         loss_ops=[sqrt(0.6) * unitmode(1, 1)],
                                         gain_ops=[sqrt(0.2) * unitmode(1, 1)])
@@ -166,10 +174,20 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         balanced_ss = steadystate(both_lind)
         @test density(balanced_ss) ≈ [0.25] atol = 1e-10
 
+        small_balanced = CorrelationLindblad(zeros(ComplexF64, 1, 1);
+                                             loss_ops=[sqrt(1e-12) * unitmode(1, 1)],
+                                             gain_ops=[sqrt(1e-12) * unitmode(1, 1)])
+        @test density(steadystate(small_balanced)) ≈ [0.5] atol = 1e-10
+
+        large_balanced = CorrelationLindblad(zeros(ComplexF64, 1, 1);
+                                             loss_ops=[sqrt(1e8) * unitmode(1, 1)],
+                                             gain_ops=[sqrt(1e8) * unitmode(1, 1)])
+        @test density(steadystate(large_balanced)) ≈ [0.5] atol = 1e-10
+
         cdecay = CorrelationState(ComplexF64[0.5 0.25; 0.25 0.5])
         evolve!(cdecay, deph_lind, 5.0)
         @test density(cdecay) ≈ [0.5, 0.5] atol = 1e-10
-        @test abs(correlation(cdecay, 1, 2)) < 0.25
+        @test correlation(cdecay, 1, 2) ≈ 0.25 * exp(-0.5 * 5.0 / 2) atol = 1e-10
         @test_throws ArgumentError steadystate(deph_lind)
     end
 

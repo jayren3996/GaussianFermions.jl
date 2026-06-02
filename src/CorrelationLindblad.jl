@@ -10,7 +10,7 @@ mutable struct CorrelationLindblad
     damping::Matrix{ComplexF64}
     source::Matrix{ComplexF64}
     dephasing::Vector{Tuple{Float64,Matrix{ComplexF64}}}
-    cache::Union{Nothing,Tuple{Matrix{ComplexF64},Vector{ComplexF64}}}
+    cache::Union{Nothing,Tuple{UInt,Matrix{ComplexF64},Vector{ComplexF64}}}
 end
 
 function CorrelationLindblad(h::AbstractMatrix; loss_ops=[], gain_ops=[], dephasing_ops=[])
@@ -96,9 +96,32 @@ end
 lindblad_rhs(Liouv::CorrelationLindblad, s::CorrelationState) =
     lindblad_rhs(Liouv, correlation_matrix(s))
 
+function _hash_matrix(A::AbstractMatrix, seed::UInt)
+    h = hash(size(A), seed)
+    for value in A
+        h = hash(value, h)
+    end
+    h
+end
+
+function _generator_fingerprint(Liouv::CorrelationLindblad)
+    h = hash(:CorrelationLindbladGenerator, zero(UInt))
+    h = _hash_matrix(Matrix(Liouv.h), h)
+    h = _hash_matrix(Liouv.damping, h)
+    h = _hash_matrix(Liouv.source, h)
+    h = hash(length(Liouv.dephasing), h)
+    for (γ, Q) in Liouv.dephasing
+        h = hash(γ, h)
+        h = _hash_matrix(Q, h)
+    end
+    h
+end
+
 function _affine_generator(Liouv::CorrelationLindblad)
+    fingerprint = _generator_fingerprint(Liouv)
     if Liouv.cache !== nothing
-        return Liouv.cache
+        cached_fingerprint, M, b = Liouv.cache
+        cached_fingerprint == fingerprint && return M, b
     end
 
     L = size(Liouv.h, 1)
@@ -111,8 +134,8 @@ function _affine_generator(Liouv::CorrelationLindblad)
         E[k] = 1
         M[:, k] .= vec(lindblad_rhs(Liouv, E)) .- b
     end
-    Liouv.cache = (M, b)
-    Liouv.cache
+    Liouv.cache = (fingerprint, M, b)
+    M, b
 end
 
 function _hermitian_correlation(C::AbstractMatrix)
@@ -138,8 +161,12 @@ evolve(s::CorrelationState, Liouv::CorrelationLindblad, dt::Real; kwargs...) =
 
 function steadystate(Liouv::CorrelationLindblad; atol::Real=1e-10, rtol::Real=1e-8, check_unique::Bool=true)
     M, b = _affine_generator(Liouv)
-    if check_unique && rank(M; atol) < size(M, 1)
-        throw(ArgumentError("CorrelationLindblad steady state is not unique; the dense generator is singular"))
+    if check_unique
+        svals = svdvals(M)
+        singular_threshold = rtol * maximum(svals)
+        if minimum(svals) ≤ singular_threshold
+            throw(ArgumentError("CorrelationLindblad steady state is not unique; the dense generator is singular"))
+        end
     end
 
     x = try
@@ -151,8 +178,7 @@ function steadystate(Liouv::CorrelationLindblad; atol::Real=1e-10, rtol::Real=1e
     L = size(Liouv.h, 1)
     C = Matrix(_hermitian_correlation(reshape(x, L, L)))
     residual = norm(lindblad_rhs(Liouv, C))
-    scale = max(norm(C), one(Float64))
-    residual ≤ atol + rtol * scale ||
+    residual ≤ atol + rtol * (norm(M) * norm(x) + norm(b)) ||
         throw(ArgumentError("CorrelationLindblad steady-state residual $residual exceeds tolerance"))
 
     vals = real.(eigvals(Hermitian(C)))
