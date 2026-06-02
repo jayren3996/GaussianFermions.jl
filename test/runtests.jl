@@ -158,6 +158,7 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         evolve!(s_unitary, H2, 0.3)
         evolve!(s_det, CorrelationLindblad(H2), 0.3)
         @test correlation_matrix(s_det) ≈ correlation_matrix(s_unitary) atol = 1e-10
+        @test_throws ArgumentError evolve!(CorrelationState([1.0]), CorrelationLindblad(zeros(ComplexF64, 2, 2)), 0.1)
 
         loss_ss = steadystate(loss_lind)
         @test density(loss_ss) ≈ [0.0] atol = 1e-10
@@ -183,6 +184,11 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
                                              loss_ops=[sqrt(1e8) * unitmode(1, 1)],
                                              gain_ops=[sqrt(1e8) * unitmode(1, 1)])
         @test density(steadystate(large_balanced)) ≈ [0.5] atol = 1e-10
+
+        multiscale_balanced = CorrelationLindblad(zeros(ComplexF64, 2, 2);
+                                                  loss_ops=[unitmode(2, 1), sqrt(1e-10) * unitmode(2, 2)],
+                                                  gain_ops=[unitmode(2, 1), sqrt(1e-10) * unitmode(2, 2)])
+        @test density(steadystate(multiscale_balanced)) ≈ [0.5, 0.5] atol = 1e-10
 
         cdecay = CorrelationState(ComplexF64[0.5 0.25; 0.25 0.5])
         evolve!(cdecay, deph_lind, 5.0)

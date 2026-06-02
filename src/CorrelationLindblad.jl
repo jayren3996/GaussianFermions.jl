@@ -145,13 +145,15 @@ end
 
 function evolve!(s::CorrelationState, Liouv::CorrelationLindblad, dt::Real; method::Symbol=:expm)
     method == :expm || throw(ArgumentError("unsupported CorrelationLindblad evolution method: $method"))
+    L = nmodes(s)
+    L == size(Liouv.h, 1) ||
+        throw(ArgumentError("CorrelationState has $L modes but CorrelationLindblad has $(size(Liouv.h, 1)) modes"))
     M, b = _affine_generator(Liouv)
     n = length(b)
     A = zeros(ComplexF64, n + 1, n + 1)
     A[1:n, 1:n] .= M
     A[1:n, n + 1] .= b
     y = exp(dt .* A) * vcat(vec(correlation_matrix(s)), one(ComplexF64))
-    L = nmodes(s)
     s.C = _hermitian_correlation(reshape(y[1:n], L, L))
     s
 end
@@ -159,13 +161,14 @@ end
 evolve(s::CorrelationState, Liouv::CorrelationLindblad, dt::Real; kwargs...) =
     evolve!(copy(s), Liouv, dt; kwargs...)
 
-function steadystate(Liouv::CorrelationLindblad; atol::Real=1e-10, rtol::Real=1e-8, check_unique::Bool=true)
+function steadystate(Liouv::CorrelationLindblad; atol::Real=1e-10, rtol::Real=1e-8,
+                     rank_rtol::Real=eps(Float64), check_unique::Bool=true)
     M, b = _affine_generator(Liouv)
     if check_unique
         svals = svdvals(M)
-        singular_threshold = rtol * maximum(svals)
+        singular_threshold = rank_rtol * max(size(M)...) * maximum(svals)
         if minimum(svals) ≤ singular_threshold
-            throw(ArgumentError("CorrelationLindblad steady state is not unique; the dense generator is singular"))
+            throw(ArgumentError("CorrelationLindblad steady state is not unique; the dense generator is numerically singular"))
         end
     end
 
