@@ -1,5 +1,6 @@
 using GaussianFermions
 using LinearAlgebra
+using Random
 
 #--------------------------------------------------------------------------------
 # Dephasing model: cross-check the stochastic trajectory engines against the
@@ -27,19 +28,36 @@ end
 monitor_channels(d, L; γ) = [OccupationMonitor(qm; γ=γ) for qm in monitor_modes(d, L)]
 
 #--------------------------------------------------------------------------------
-# Stochastic trajectory methods (number-conserving API)
+# Stochastic trajectory methods (number-conserving API) — the trajectory steps and
+# averaging loops live here; the library supplies only the per-step primitives.
 #--------------------------------------------------------------------------------
-"Quantum-jump (MCWF) trajectory average of the site density."
-function jump_den_evo(; L=32, γ=0.5, dt=0.05, T=10.0, ntraj=300, d=[1, 3, 1])
-    H = hopping(L; pbc=false)
-    chans = monitor_channels(d, L; γ=γ)
-    res = ensemble(() -> SlaterState(L=L, N=L ÷ 2, config="left"), H, chans;
-                   ntraj=ntraj, tspan=T, dt=dt, observables=(n=density,))
-    reduce(hcat, res.mean.n)            # L × nsteps
+# One MCWF (quantum-jump) step: unitary, then per-channel click / no-click.
+function mcwf_step!(s, U, channels, dt; rng=Random.default_rng())
+    evolve!(s, U)
+    for ch in channels
+        rate, work = jump_rate(ch, s, dt)
+        if rand(rng) < rate
+            apply_click!(ch, s, work); normalize!(s)
+        else
+            apply_noclick!(ch, s, dt)
+        end
+    end
+    s
 end
 
-"Quantum-state-diffusion trajectory average of the site density."
-function qsd_den_evo(; L=32, γ=0.5, dt=0.05, T=10.0, ntraj=300, d=[1, 3, 1])
+# One QSD (diffusive) step: unitary, then a weak occupation filter exp(α nₘ) per mode.
+function qsd_step!(s, U, channels, dt; rng=Random.default_rng())
+    evolve!(s, U)
+    for ch in channels
+        qm = ch.mode
+        α = randn(rng) * sqrt(ch.γ * dt) + (2 * density(s, qm) - 1) * ch.γ * dt
+        weak_measure!(s, qm, α)
+    end
+    s
+end
+
+"Quantum-jump (MCWF) trajectory average of the site density."
+function jump_den_evo(; L=32, γ=0.5, dt=0.05, T=10.0, ntraj=300, d=[1, 3, 1], rng=Random.default_rng())
     U = propagator(hopping(L; pbc=false), dt)
     chans = monitor_channels(d, L; γ=γ)
     N = round(Int, T / dt)
@@ -47,8 +65,23 @@ function qsd_den_evo(; L=32, γ=0.5, dt=0.05, T=10.0, ntraj=300, d=[1, 3, 1])
     for _ in 1:ntraj
         s = SlaterState(L=L, N=L ÷ 2, config="left")
         for k in 1:N
-            evolve!(s, U)
-            step_diffusive!(s, chans, dt)
+            mcwf_step!(s, U, chans, dt; rng)
+            acc[:, k] .+= density(s)
+        end
+    end
+    acc ./ ntraj
+end
+
+"Quantum-state-diffusion trajectory average of the site density."
+function qsd_den_evo(; L=32, γ=0.5, dt=0.05, T=10.0, ntraj=300, d=[1, 3, 1], rng=Random.default_rng())
+    U = propagator(hopping(L; pbc=false), dt)
+    chans = monitor_channels(d, L; γ=γ)
+    N = round(Int, T / dt)
+    acc = zeros(L, N)
+    for _ in 1:ntraj
+        s = SlaterState(L=L, N=L ÷ 2, config="left")
+        for k in 1:N
+            qsd_step!(s, U, chans, dt; rng)
             acc[:, k] .+= density(s)
         end
     end

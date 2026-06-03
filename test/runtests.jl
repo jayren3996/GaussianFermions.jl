@@ -530,16 +530,22 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test isapprox(nocc / 4000, p; atol=0.03)
         @test_throws ArgumentError measure!(MajoranaState([1, 0]), 5)
 
-        # Monitored-trajectory ensemble reproduces MajoranaLindblad: projective
-        # measurement of nᵢ at rate γ ≡ dephasing D[√(2γ)nᵢ]. Density transports under
-        # hopping + monitoring; the trajectory average matches the master equation.
-        Random.seed!(123)
-        Lc = 4; γ = 0.5
-        Hb = BdGHamiltonian(QuadraticHamiltonian(Matrix(hopping(Lc; pbc=true).h)))
-        res = ensemble(() -> MajoranaState(CorrelationState(SlaterState(L=Lc, N=2, config="Z2"))),
-                       Hb, [(i, γ) for i in 1:Lc];
-                       ntraj=500, tspan=1.0, dt=0.04, observables=(n=density,), rng=Random.Xoshiro(5))
-        traj_density = reduce(hcat, res.mean.n)[:, end]
+        # An explicit projective-monitoring trajectory loop reproduces MajoranaLindblad:
+        # measuring nᵢ at rate γ ≡ dephasing D[√(2γ)nᵢ]. The caller owns the loop.
+        Lc = 4; γ = 0.5; dt = 0.04; nsteps = round(Int, 1.0 / dt)
+        U = propagator(BdGHamiltonian(QuadraticHamiltonian(Matrix(hopping(Lc; pbc=true).h))), dt)
+        rng = Random.Xoshiro(5); ntraj = 500; acc = zeros(Lc)
+        for _ in 1:ntraj
+            st = MajoranaState(CorrelationState(SlaterState(L=Lc, N=2, config="Z2")))
+            for _ in 1:nsteps
+                evolve!(st, U)
+                for site in 1:Lc
+                    rand(rng) < γ * dt && measure!(st, site; rng)
+                end
+            end
+            acc .+= density(st)
+        end
+        traj_density = acc ./ ntraj
         lind = MajoranaLindblad(QuadraticHamiltonian(Matrix(hopping(Lc; pbc=true).h));
                                 dephasing_ops=[((v = zeros(ComplexF64, Lc); v[i] = 1; v), 2γ) for i in 1:Lc])
         mref = MajoranaState(CorrelationState(SlaterState(L=Lc, N=2, config="Z2"))); evolve!(mref, lind, 1.0)
@@ -548,42 +554,60 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
     end
 
     @testset "Majorana trajectory (linear jumps / MCWF)" begin
-        # The single-jump conditional update keeps the state physical and pure-preserving:
+        # One explicit MCWF step from the primitives: draw ≤1 click over dt, else no-click.
+        function mcwf_maj!(s, U, jumps, dt, rng)
+            evolve!(s, U)
+            rates = [jump_rate(s, ℓ) for ℓ in jumps]
+            total = sum(rates)
+            if rand(rng) < total * dt
+                r = rand(rng) * total; idx = 1; cum = rates[1]
+                while cum < r && idx < length(rates); idx += 1; cum += rates[idx]; end
+                apply_click!(s, jumps[idx])
+            else
+                apply_noclick!(s, jumps, dt)
+            end
+            s
+        end
+
+        # The single-jump conditional click keeps the state physical and pure-preserving:
         # a click on a pure state stays pure (eigenvalues of iΓ remain ±1).
-        L = 4
         ℓ = ComplexF64[0.7, 0, 0, 0, 0.3im, 0, 0, 0]            # raw linear Majorana jump
-        m = MajoranaState(CorrelationState(SlaterState(L=L, N=2, config="Z2")))
-        N, _ = GaussianFermions._jump_rate_and_increment(covariance_matrix(m), ℓ)
-        @test N ≥ 0                                              # click rate is real, non-negative
-        GaussianFermions._apply_majorana_jump!(m, ℓ)
+        m = MajoranaState(CorrelationState(SlaterState(L=4, N=2, config="Z2")))
+        @test jump_rate(m, ℓ) ≥ 0                                # click rate is real, non-negative
+        apply_click!(m, ℓ)
         @test all(abs.(abs.(real.(eigvals(Hermitian(im .* covariance_matrix(m))))) .- 1) .< 1e-9)
 
-        # MCWF ensemble reproduces MajoranaLindblad for loss + gain (number-non-conserving).
-        Lc = 4
-        Hq = QuadraticHamiltonian(Matrix(hopping(Lc; pbc=true).h)); Hb = BdGHamiltonian(Hq)
-        loss = [sqrt(0.4) * (v = zeros(ComplexF64, Lc); v[1] = 1; v)]
-        gain = [sqrt(0.25) * (v = zeros(ComplexF64, Lc); v[3] = 1; v)]
+        # MCWF trajectory loop reproduces MajoranaLindblad for loss + gain (number-non-conserving).
+        Lc = 4; dt = 0.01
+        Hq = QuadraticHamiltonian(Matrix(hopping(Lc; pbc=true).h)); U = propagator(BdGHamiltonian(Hq), dt)
+        lossw = sqrt(0.4) * (v = zeros(ComplexF64, Lc); v[1] = 1; v)
+        gainw = sqrt(0.25) * (v = zeros(ComplexF64, Lc); v[3] = 1; v)
+        jumps = [loss_jump(lossw), gain_jump(gainw)]
         init() = MajoranaState(CorrelationState(SlaterState(L=Lc, N=2, config="Z2")))
-        lind = MajoranaLindblad(Hq; loss_ops=loss, gain_ops=gain)
+        lind = MajoranaLindblad(Hq; loss_ops=[lossw], gain_ops=[gainw])
         sref = init(); evolve!(sref, lind, 1.5)
-        J = MajoranaJumps(Lc; loss_ops=loss, gain_ops=gain)
-        res = ensemble(init, Hb, J; ntraj=3000, tspan=1.5, dt=0.01,
-                       observables=(n=density,), rng=Random.Xoshiro(1234))
-        @test isapprox(res.mean.n[end], density(sref); atol=0.04)
+        rng = Random.Xoshiro(1234); ntraj = 3000; nsteps = round(Int, 1.5 / dt); acc = zeros(Lc)
+        for _ in 1:ntraj
+            s = init(); for _ in 1:nsteps; mcwf_maj!(s, U, jumps, dt, rng); end; acc .+= density(s)
+        end
+        @test isapprox(acc ./ ntraj, density(sref); atol=0.04)
 
-        # Pairing jump generates anomalous correlations; MCWF reproduces them too.
+        # Pairing jump generates anomalous correlations; the MCWF loop reproduces them too.
         ℓp = sqrt(0.5) * ComplexF64[0.5, 0.5im, 0, 0, -0.5im, -0.5, 0, 0]   # L = c1 + i c2†
-        lindp = MajoranaLindblad(Hq; majorana_ops=[ℓp])
-        srefp = init(); evolve!(srefp, lindp, 1.2)
+        @test ℓp ≈ majorana_jump(sqrt(0.5) * ComplexF64[1, 0, 0, 0], sqrt(0.5) * ComplexF64[0, 1im, 0, 0])
+        srefp = init(); evolve!(srefp, MajoranaLindblad(Hq; majorana_ops=[ℓp]), 1.2)
         @test norm(anomalous_correlation(srefp)) > 0.1          # pairing is genuinely present
-        Jp = MajoranaJumps(Lc; majorana_ops=[ℓp])
-        resp = ensemble(init, Hb, Jp; ntraj=4000, tspan=1.2, dt=0.01,
-                        observables=(n=density, F=anomalous_correlation), rng=Random.Xoshiro(7))
-        @test isapprox(resp.mean.n[end], density(srefp); atol=0.04)
-        @test isapprox(resp.mean.F[end], anomalous_correlation(srefp); atol=0.04)
+        rng = Random.Xoshiro(7); ntraj = 4000; nsteps = round(Int, 1.2 / dt)
+        accn = zeros(Lc); accF = zeros(ComplexF64, Lc, Lc)
+        for _ in 1:ntraj
+            s = init(); for _ in 1:nsteps; mcwf_maj!(s, U, [ℓp], dt, rng); end
+            accn .+= density(s); accF .+= anomalous_correlation(s)
+        end
+        @test isapprox(accn ./ ntraj, density(srefp); atol=0.04)
+        @test isapprox(accF ./ ntraj, anomalous_correlation(srefp); atol=0.04)
 
-        @test_throws ArgumentError MajoranaJumps(Lc; majorana_ops=[ComplexF64[1, 0]])
-        @test_throws ArgumentError MajoranaJumps(Lc; monitors=[(0, 1.0)])
+        @test_throws ArgumentError jump_rate(m, ComplexF64[1, 0])          # wrong length
+        @test_throws ArgumentError apply_click!(init(), zeros(ComplexF64, 8))  # zero-rate jump
     end
 
     @testset "Majorana trajectory (diffusive / QSD)" begin
@@ -593,7 +617,7 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         s = SlaterState(L=L, N=2, config="Z2")
         s.B = Matrix(qr(randn(ComplexF64, L, L)).Q) * s.B      # generic pure state
         m = MajoranaState(CorrelationState(s))
-        GaussianFermions._filter_occupation!(m, i, α)
+        weak_measure!(m, i, α)
         sref = copy(s); M = Matrix{ComplexF64}(I, L, L); M[i, i] = exp(α)
         sref.B = M * sref.B; GaussianFermions.normalize!(sref)
         @test covariance_matrix(m) ≈ covariance_matrix(MajoranaState(CorrelationState(sref))) atol = 1e-12
@@ -619,17 +643,21 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         Γ0 = real.([(im / 2) * (ψ' * (ω[a] * ω[b] - ω[b] * ω[a]) * ψ) for a in 1:2n, b in 1:2n])
         β = -0.9; ψ2 = exp(β .* Matrix(c[2]' * c[2])) * ψ; ψ2 ./= norm(ψ2)
         Γed = real.([(im / 2) * (ψ2' * (ω[a] * ω[b] - ω[b] * ω[a]) * ψ2) for a in 1:2n, b in 1:2n])
-        mp = MajoranaState(Γ0; check=false); GaussianFermions._filter_occupation!(mp, 2, β)
+        mp = MajoranaState(Γ0; check=false); weak_measure!(mp, 2, β)
         @test covariance_matrix(mp) ≈ Γed atol = 1e-10
 
-        # Diffusive ensemble reproduces the dephasing Lindblad D[√γ nᵢ] (rate γ, not 2γ).
-        Random.seed!(123); Lc = 4; γ = 0.7; T = 1.0; dt = 0.01
-        Hb = BdGHamiltonian(QuadraticHamiltonian(Matrix(hopping(Lc; pbc=true).h)))
+        # Explicit QSD trajectory loop reproduces the dephasing Lindblad D[√γ nᵢ] (rate γ, not 2γ).
+        Lc = 4; γ = 0.7; T = 1.0; dt = 0.01; nsteps = round(Int, T / dt)
+        U = propagator(BdGHamiltonian(QuadraticHamiltonian(Matrix(hopping(Lc; pbc=true).h))), dt)
         rng = Random.Xoshiro(1); acc = zeros(Lc); ntraj = 1500
         for _ in 1:ntraj
             st = MajoranaState(CorrelationState(SlaterState(L=Lc, N=2, config="Z2")))
-            for _ in 1:round(Int, T / dt)
-                evolve!(st, Hb, dt); step_diffusive!(st, [(j, γ) for j in 1:Lc], dt; rng)
+            for _ in 1:nsteps
+                evolve!(st, U)
+                for j in 1:Lc
+                    α = randn(rng) * sqrt(γ * dt) + (2 * density(st, j) - 1) * γ * dt
+                    weak_measure!(st, j, α)
+                end
             end
             acc .+= density(st)
         end
@@ -637,7 +665,7 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
                 dephasing_ops=[((v = zeros(ComplexF64, Lc); v[j] = 1; v), γ) for j in 1:Lc])
         cs = CorrelationState(SlaterState(L=Lc, N=2, config="Z2")); evolve!(cs, cl, T)
         @test isapprox(acc ./ ntraj, real.(diag(correlation_matrix(cs))); atol=0.03)
-        @test_throws ArgumentError step_diffusive!(MajoranaState([1, 0]), [(5, 1.0)], 0.1)
+        @test_throws ArgumentError weak_measure!(MajoranaState([1, 0]), 5, 0.1)
     end
 
     @testset "Channels & trajectories" begin
@@ -645,40 +673,59 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         L = 8
         H = hopping(L; pbc=true)
 
+        # explicit MCWF step from the channel primitives (no step! wrapper)
+        function mcwf!(s, U, channels, dt)
+            evolve!(s, U)
+            for ch in channels
+                rate, work = jump_rate(ch, s, dt)
+                if rand() < rate
+                    apply_click!(ch, s, work); normalize!(s)
+                else
+                    apply_noclick!(ch, s, dt)
+                end
+            end
+            s
+        end
+        U = propagator(H, 0.05)
+
         # occupation monitoring conserves N
         s = SlaterState(L=L, N=4, config="Z2")
-        for _ in 1:50; step!(s, H, [dephasing(i, L; γ=1.0) for i in 1:L], 0.05); end
+        for _ in 1:50; mcwf!(s, U, [dephasing(i, L; γ=1.0) for i in 1:L], 0.05); end
         @test particle_number(s) == 4
         @test isorthonormal(s)
         @test all(-1e-9 .≤ density(s) .≤ 1 + 1e-9)
 
         # hole monitoring conserves N
         sh = SlaterState(L=L, N=4, config="Z2")
-        for _ in 1:30; step!(sh, H, [HoleMonitor(QuasiMode([i], ComplexF64[1], L); γ=1.0) for i in 1:L], 0.05); end
+        for _ in 1:30; mcwf!(sh, U, [HoleMonitor(QuasiMode([i], ComplexF64[1], L); γ=1.0) for i in 1:L], 0.05); end
         @test particle_number(sh) == 4
         @test isorthonormal(sh)
 
         # loss -> vacuum (N non-increasing)
         sl = SlaterState(L=L, N=4, config="Z2")
-        for _ in 1:100; step!(sl, H, [loss(i, L; γ=1.0) for i in 1:L], 0.05); end
+        for _ in 1:100; mcwf!(sl, U, [loss(i, L; γ=1.0) for i in 1:L], 0.05); end
         @test particle_number(sl) == 0
 
         # gain -> N non-decreasing
         sg = SlaterState(L=L, N=2, config="left")
-        for _ in 1:60; step!(sg, H, [gain(i, L; γ=1.0) for i in 1:L], 0.05); end
+        for _ in 1:60; mcwf!(sg, U, [gain(i, L; γ=1.0) for i in 1:L], 0.05); end
         @test particle_number(sg) ≥ 2
         @test isorthonormal(sg)
     end
 
     @testset "Continuous monitoring" begin
         Random.seed!(7)
-        L = 8
-        H = hopping(L; pbc=true)
+        L = 8; dt = 0.05
+        U = propagator(hopping(L; pbc=true), dt)
         s = SlaterState(L=L, N=4, config="Z2")
         chans = [dephasing(i, L; γ=0.5) for i in 1:L]
         for _ in 1:50
-            evolve!(s, H, 0.05)
-            step_diffusive!(s, chans, 0.05)
+            evolve!(s, U)
+            for ch in chans                                       # explicit QSD step
+                qm = ch.mode
+                α = randn() * sqrt(ch.γ * dt) + (2 * density(s, qm) - 1) * ch.γ * dt
+                weak_measure!(s, qm, α)
+            end
         end
         @test particle_number(s) == 4
         @test isorthonormal(s)
@@ -712,21 +759,27 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test isorthonormal(s)
     end
 
-    @testset "Ensemble runner" begin
+    @testset "Trajectory averaging (manual loop)" begin
+        # The library has no ensemble runner; the caller owns the averaging loop.
         Random.seed!(11)
-        L = 8
-        H = hopping(L; pbc=true)
-        res = ensemble(() -> SlaterState(L=L, N=4, config="Z2"), H,
-                       [dephasing(i, L; γ=0.5) for i in 1:L];
-                       ntraj=24, tspan=1.0, dt=0.1,
-                       observables=(n=density, S=s -> entanglement_entropy(s, 1:L÷2)))
-        @test length(res.saveat) == 10
-        @test res.ntraj == 24
-        @test length(res.mean.n[end]) == L              # density is a vector observable
-        @test res.mean.S[end] ≥ 0                       # entropy non-negative
-        @test all(0 .≤ res.mean.n[end] .≤ 1)
-        # trajectory-averaged total density ≈ conserved N (occupation monitoring conserves N)
-        @test sum(res.mean.n[end]) ≈ 4 atol = 1e-6
+        L = 8; dt = 0.1; nsteps = 10; ntraj = 24
+        U = propagator(hopping(L; pbc=true), dt)
+        chans = [dephasing(i, L; γ=0.5) for i in 1:L]
+        accn = zeros(L)
+        for _ in 1:ntraj
+            s = SlaterState(L=L, N=4, config="Z2")
+            for _ in 1:nsteps
+                evolve!(s, U)
+                for ch in chans
+                    rate, work = jump_rate(ch, s, dt)
+                    rand() < rate ? (apply_click!(ch, s, work); normalize!(s)) : apply_noclick!(ch, s, dt)
+                end
+            end
+            accn .+= density(s)
+        end
+        meann = accn ./ ntraj
+        @test all(0 .≤ meann .≤ 1)
+        @test sum(meann) ≈ 4 atol = 1e-6                 # occupation monitoring conserves N
     end
 
     @testset "Examples" begin
@@ -738,7 +791,7 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         include(joinpath(exdir, "MI.jl"))
         include(joinpath(exdir, "Dephase.jl"))
 
-        @test freefermion_demo(; L=6, ntraj=2, tspan=0.2, dt=0.05) isa EnsembleResult
+        @test freefermion_demo(; L=6, ntraj=2, tspan=0.2, dt=0.05).ntraj == 2
         @test mi_vs_gamma(; L=8, γ=0.5, ntraj=2, tspan=0.5, dt=0.05) isa Real
 
         ref = lindblad_den_evo(; L=8, d=[1, 3, 1], T=0.5)

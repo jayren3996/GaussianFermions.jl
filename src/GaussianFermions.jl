@@ -9,7 +9,7 @@ include("States.jl")        # SlaterState / CorrelationState
 include("Observables.jl")   # densities, entropies, diagnostics
 include("Hamiltonians.jl")  # QuadraticHamiltonian + propagator
 include("Channels.jl")      # dissipation / measurement channels
-include("Trajectory.jl")    # evolution, trajectory engine, ensemble runner
+include("Trajectory.jl")    # evolution, gates, quantum-trajectory primitives
 include("CorrelationLindblad.jl")
 # --- Majorana / BdG covariance layer ---
 include("MajoranaStates.jl")

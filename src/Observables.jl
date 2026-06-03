@@ -38,6 +38,8 @@ Site occupations `⟨nᵢ⟩ = ⟨c⁺ᵢ cᵢ⟩`.
 """
 density(s::NumberConservingGaussianState) = [real(correlation(s, i, i)) for i in 1:nmodes(s)]
 density(s::NumberConservingGaussianState, i::Integer) = real(correlation(s, i, i))
+# occupation ⟨nₘ⟩ = ⟨d†d⟩ of a quasi-mode d = Σₐ Vₐ c_{Iₐ} (pure SlaterState)
+density(s::SlaterState, qm::QuasiMode) = (p = inner(qm, s.B); real(dot(p, p)))
 
 """
     density_profile(s) -> Vector{Float64}

@@ -96,61 +96,90 @@ anomalous_correlation(state)   # nonzero once a pairing bath acts
 On number-conserving channels `MajoranaLindblad` reproduces `CorrelationLindblad`
 to machine precision (see `example/Dephase.jl`).
 
-Monitored BdG quantum trajectories use `measure!` (projective occupation collapse of
-a `MajoranaState`) and `step!` (unitary evolution + projective monitoring), which plug
-into the existing `ensemble` runner:
+## Quantum Trajectories
+
+Monitored dynamics are built from **low-level primitives** — there is no trajectory
+runner. You own the loop: evolve a step, decide measurements/jumps, accumulate
+observables. This keeps the dynamics explicit and tunable per script. The primitives
+(for both `SlaterState` and `MajoranaState`):
+
+- `measure!(s, i)` — projective occupation measurement (Born statistics, collapse).
+- `jump_rate(s, ℓ)` / `apply_click!(s, ℓ)` / `apply_noclick!(s, jumps, dt)` — linear
+  quantum-jump (MCWF) building blocks; for `SlaterState` the channel forms
+  `jump_rate(ch, s, dt)` / `apply_click!(ch, s, work)` / `apply_noclick!(ch, s, dt)`.
+- `weak_measure!(s, i, α)` — the exact weak-measurement filter `exp(α nᵢ)` for
+  continuous (quantum-state-diffusion) monitoring.
+
+**Projective monitoring** of a `MajoranaState` and a hand-rolled trajectory average:
 
 ```julia
-using GaussianFermions
+using GaussianFermions, Random
 
 H = BdGHamiltonian(QuadraticHamiltonian(Matrix(hopping(8; pbc=true).h)))
-res = ensemble(() -> MajoranaState(CorrelationState(SlaterState(L=8, N=4, config="Z2"))),
-               H, [(i, 0.5) for i in 1:8];          # projectively monitor each site at rate 0.5
-               ntraj=200, tspan=2.0, dt=0.05,
-               observables=(n = density, S = s -> entanglement_entropy(s, 1:4)))
-res.mean.S[end]   # trajectory-averaged half-chain entanglement
+U = propagator(H, 0.05)
+rng = Xoshiro(1); ntraj = 200; ΣS = 0.0
+for _ in 1:ntraj
+    s = MajoranaState(CorrelationState(SlaterState(L=8, N=4, config="Z2")))
+    for _ in 1:40
+        evolve!(s, U)
+        for i in 1:8
+            rand(rng) < 0.5 * 0.05 && measure!(s, i; rng)   # monitor each site at rate 0.5
+        end
+    end
+    global ΣS += entanglement_entropy(s, 1:4)
+end
+ΣS / ntraj   # trajectory-averaged half-chain entanglement
 ```
 
 Projective measurement of `nᵢ` at rate `γ` averages to the dephasing Lindblad
-`D[√(2γ) nᵢ]`, so the trajectory ensemble reproduces `MajoranaLindblad`.
+`D[√(2γ) nᵢ]`, so the trajectory average reproduces `MajoranaLindblad`.
 
-For dissipative (loss/gain/pairing) baths, `MajoranaJumps` packages the linear jump
-operators into a Monte-Carlo wave-function (MCWF) unraveling: each step draws a click
-(rendering the conditional Gaussian state) or follows the effective non-Hermitian
-no-click drift. Unlike projective monitoring this handles number-non-conserving
-(pairing) jumps and generates anomalous correlations.
+**Dissipative (loss/gain/pairing) jumps** — a Monte-Carlo wave-function (MCWF) step
+draws a click (the conditional Gaussian state) or applies the effective non-Hermitian
+no-click drift. `loss_jump`/`gain_jump`/`majorana_jump` build the Majorana jump vector
+`ℓ`; pairing jumps generate anomalous correlations:
 
 ```julia
-using GaussianFermions
+using GaussianFermions, Random
 
-H  = BdGHamiltonian(QuadraticHamiltonian(Matrix(hopping(4; pbc=true).h)))
-J  = MajoranaJumps(4; loss_ops=[sqrt(0.4) * ComplexF64[1, 0, 0, 0]],
-                      gain_ops=[sqrt(0.25) * ComplexF64[0, 0, 1, 0]])
-res = ensemble(() -> MajoranaState(CorrelationState(SlaterState(L=4, N=2, config="Z2"))),
-               H, J; ntraj=3000, tspan=1.5, dt=0.01, observables=(n = density,))
-res.mean.n[end]   # matches MajoranaLindblad(H; loss_ops=…, gain_ops=…)
+U = propagator(BdGHamiltonian(QuadraticHamiltonian(Matrix(hopping(4; pbc=true).h))), 0.01)
+jumps = [loss_jump(sqrt(0.4) * ComplexF64[1, 0, 0, 0]),
+         gain_jump(sqrt(0.25) * ComplexF64[0, 0, 1, 0])]
+rng = Xoshiro(1)
+s = MajoranaState(CorrelationState(SlaterState(L=4, N=2, config="Z2")))
+for _ in 1:150
+    evolve!(s, U)
+    rates = [jump_rate(s, ℓ) for ℓ in jumps]
+    if rand(rng) < sum(rates) * 0.01
+        apply_click!(s, jumps[argmax(rand(rng) .< cumsum(rates) ./ sum(rates))])
+    else
+        apply_noclick!(s, jumps, 0.01)
+    end
+end
+density(s)   # averaged over trajectories, matches MajoranaLindblad(H; loss_ops=…, gain_ops=…)
 ```
 
-The MCWF ensemble reproduces the deterministic `MajoranaLindblad` built from the same
-jump operators (density and anomalous correlations, verified).
-
-For continuous (homodyne / quantum-state-diffusion) occupation monitoring, `step_diffusive!`
-applies the exact weak-measurement Gaussian filter `exp(αᵢ nᵢ)` with
-`αᵢ = δWᵢ + (2⟨nᵢ⟩ − 1)γᵢ dt` to the covariance:
+**Continuous (QSD) monitoring** applies the exact weak filter `exp(αᵢ nᵢ)` with
+`αᵢ = δWᵢ + (2⟨nᵢ⟩ − 1)γᵢ dt`:
 
 ```julia
-using GaussianFermions
+using GaussianFermions, Random
 
-Hb = BdGHamiltonian(QuadraticHamiltonian(Matrix(hopping(4; pbc=true).h)))
-s  = MajoranaState(CorrelationState(SlaterState(L=4, N=2, config="Z2")))
+U = propagator(BdGHamiltonian(QuadraticHamiltonian(Matrix(hopping(4; pbc=true).h))), 0.01)
+rng = Xoshiro(1); γ = 0.7
+s = MajoranaState(CorrelationState(SlaterState(L=4, N=2, config="Z2")))
 for _ in 1:100
-    evolve!(s, Hb, 0.01)
-    step_diffusive!(s, [(i, 0.7) for i in 1:4], 0.01)   # monitor each site at rate 0.7
+    evolve!(s, U)
+    for i in 1:4
+        α = randn(rng) * sqrt(γ * 0.01) + (2 * density(s, i) - 1) * γ * 0.01
+        weak_measure!(s, i, α)
+    end
 end
 density(s)
 ```
 
-It shares the unraveling convention of the number-conserving `SlaterState`
-`step_diffusive!`, and averaging over the noise reproduces the dephasing Lindblad
-`D[√γ nᵢ]` (verified to machine precision against the `SlaterState` filter and exact
-diagonalization, including paired states).
+The `MajoranaState` `weak_measure!` matches the number-conserving `SlaterState` one to
+machine precision, and averaging over the noise reproduces the dephasing Lindblad
+`D[√γ nᵢ]` (verified against the `SlaterState` filter and exact diagonalization,
+including paired states). See `example/FreeFermion.jl`, `example/MI.jl`, and
+`example/Dephase.jl` for complete trajectory + averaging loops.

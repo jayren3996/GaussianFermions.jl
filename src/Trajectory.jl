@@ -2,9 +2,8 @@
 # Evolution, gates, and the quantum-trajectory engine
 #---------------------------------------------------------------------------------------------------
 export evolve, evolve!, Gate, apply!
-export step!, step_diffusive!, measure!, Feedback
+export measure!, weak_measure!, Feedback
 export NonHermitianGenerator, effective_hamiltonian, noclick_propagator, evolve_noclick!
-export ensemble, EnsembleResult
 
 #---------------------------------------------------------------------------------------------------
 # Re-orthonormalization (pure states only)
@@ -85,36 +84,18 @@ function apply!(gates::AbstractVector{<:Gate}, s::NumberConservingGaussianState;
 end
 
 #---------------------------------------------------------------------------------------------------
-# One Monte-Carlo wave-function (quantum-jump) step
-#---------------------------------------------------------------------------------------------------
-"""
-    step!(s::SlaterState, U, channels, dt; rng)
-    step!(s::SlaterState, H::QuadraticHamiltonian, channels, dt; rng)
-
-One MCWF step: apply the deterministic unitary, then for each channel draw a
-click (apply the jump) or no-click (apply the back-action). The state is kept
-orthonormal.
-"""
-function step!(s::SlaterState, U::AbstractMatrix, channels, dt::Real; rng::AbstractRNG=Random.default_rng())
-    evolve!(s, U)
-    normQ = true
-    for ch in channels
-        rate, v = jump_rate(ch, s, dt)
-        if rand(rng) < rate
-            apply_click!(ch, s, v)
-            normalize!(s)
-            normQ = true
-        else
-            apply_noclick!(ch, s, dt; normalize=false, threads=true)
-            normQ = false
-        end
-    end
-    normQ || normalize!(s)
-    s
-end
-step!(s::SlaterState, H::QuadraticHamiltonian, channels, dt::Real; rng::AbstractRNG=Random.default_rng()) =
-    step!(s, propagator(H, dt), channels, dt; rng)
-
+# Quantum-jump (MCWF) trajectories are composed in user scripts from the channel
+# primitives in Channels.jl — `jump_rate(ch, s, dt)`, `apply_click!(ch, s, work)`,
+# `apply_noclick!(ch, s, dt)` — together with `evolve!`. A minimal loop:
+#
+#     evolve!(s, H, dt)
+#     for ch in channels
+#         rate, work = jump_rate(ch, s, dt)
+#         rand(rng) < rate ? apply_click!(ch, s, work) : apply_noclick!(ch, s, dt)
+#         normalize!(s)
+#     end
+#
+# See example/FreeFermion.jl and example/Dephase.jl for full trajectory + averaging loops.
 #---------------------------------------------------------------------------------------------------
 # No-click / non-Hermitian deterministic evolution (post-selected trajectory)
 #---------------------------------------------------------------------------------------------------
@@ -158,21 +139,28 @@ end
 # Continuous (diffusive / quantum-state-diffusion) monitoring
 #---------------------------------------------------------------------------------------------------
 """
-    step_diffusive!(s::SlaterState, channels, dt; rng)
+    weak_measure!(s::SlaterState, i::Integer, α::Real) -> s
 
-One Wiener (QSD) step of continuous occupation monitoring:
-`ψ → exp{∑ⱼ[δWⱼ + (2⟨nⱼ⟩-1)γ dt] nⱼ} ψ`. Channels must be `OccupationMonitor`.
+Apply the weak-measurement Gaussian filter `exp(α nᵢ)` to site `i` and renormalize
+(`B[i,:] ← e^α B[i,:]`). For continuous (quantum-state-diffusion) occupation
+monitoring at rate `γ`, step it in a loop with `α = δW + (2⟨nᵢ⟩ − 1) γ dt`,
+`δW ~ 𝒩(0, γ dt)`; averaging over the noise reproduces the dephasing Lindblad
+`D[√γ nᵢ]`. Matches the `MajoranaState` [`weak_measure!`](@ref) to machine precision.
 """
-function step_diffusive!(s::SlaterState, channels, dt::Real; rng::AbstractRNG=Random.default_rng())
-    for ch in channels
-        ch isa OccupationMonitor || error("step_diffusive! supports OccupationMonitor channels only")
-        qm = ch.mode
-        p = inner(qm, s.B)
-        a = randn(rng) * sqrt(ch.γ * dt) + (2 * real(dot(p, p)) - 1) * ch.γ * dt
-        m = (exp(a) - 1) * qm.V * qm.V' + I
-        apply!(m, s, qm.I)
-    end
-    normalize!(s)
+function weak_measure!(s::SlaterState, i::Integer, α::Real)
+    apply!(fill(ComplexF64(exp(α)), 1, 1), s, [i]; normalize=true)
+    s
+end
+
+"""
+    weak_measure!(s::SlaterState, qm::QuasiMode, α::Real) -> s
+
+Weak-measurement filter `exp(α nₘ)` for the occupation `nₘ = d†d` of quasi-mode
+`qm` (`d = Σₐ qm.Vₐ c_{qm.Iₐ}`); `B[qm.I,:] ← [(e^α-1) V V' + I] B[qm.I,:]`,
+renormalized. Read `⟨nₘ⟩` with [`density(s, qm)`](@ref) to form `α` in a QSD loop.
+"""
+function weak_measure!(s::SlaterState, qm::QuasiMode, α::Real)
+    apply!((exp(α) - 1) .* qm.V * qm.V' + I, s, qm.I; normalize=true)
     s
 end
 
@@ -225,123 +213,8 @@ function apply!(fb::Feedback, s::SlaterState, dt::Real; rng::AbstractRNG=Random.
 end
 
 #---------------------------------------------------------------------------------------------------
-# Ensemble / trajectory-average runner
+# Trajectory averaging is the caller's responsibility — there is no ensemble runner.
+# Loop over trajectories in your script, stepping with the primitives above and
+# accumulating whatever observables you need. See example/FreeFermion.jl (entanglement
+# entropy) and example/MI.jl (mutual information) for averaging loops.
 #---------------------------------------------------------------------------------------------------
-"""
-    EnsembleResult
-
-Result of [`ensemble`](@ref): `saveat` (times), `mean` and `std` (NamedTuples of
-per-observable time series), and `ntraj`.
-"""
-struct EnsembleResult
-    saveat::Vector{Float64}
-    mean::NamedTuple
-    std::NamedTuple
-    ntraj::Int
-end
-
-"""
-    ensemble(init, H, channels; ntraj, tspan, dt, observables,
-             rng=Random.default_rng(), parallel=:threads, postselect=false) -> EnsembleResult
-
-Run `ntraj` quantum-trajectory simulations and average each observable on a time
-grid. `init` is a zero-arg function returning a fresh `SlaterState`. `H` is a
-`QuadraticHamiltonian` (or a unitary matrix when `postselect=false`). `observables`
-is a `NamedTuple` of functions `state -> value` (scalar or array). With
-`postselect=true` the deterministic no-click branch is used.
-"""
-function ensemble(init, H, channels; ntraj::Integer, tspan::Real, dt::Real,
-                  observables::NamedTuple, rng::AbstractRNG=Random.default_rng(),
-                  parallel::Symbol=:threads, postselect::Bool=false)
-    nsteps = round(Int, tspan / dt)
-    saveat = collect(dt .* (1:nsteps))
-    obsfns = values(observables)
-    nobs = length(obsfns)
-    Upre = (H isa QuadraticHamiltonian && !postselect) ? propagator(H, dt) : H
-    G = postselect ? effective_hamiltonian(H, channels) : nothing
-    seeds = rand(rng, UInt64, ntraj)
-
-    # one trajectory -> Vector (per observable) of length-nsteps Vector{Any}
-    runone = function (seed)
-        r = Random.Xoshiro(seed)
-        s = init()
-        ser = [Vector{Any}(undef, nsteps) for _ in 1:nobs]
-        for k in 1:nsteps
-            postselect ? evolve_noclick!(s, G, dt) : step!(s, Upre, channels, dt; rng=r)
-            for j in 1:nobs
-                ser[j][k] = obsfns[j](s)
-            end
-        end
-        ser
-    end
-
-    # accumulate Σx and Σx² over a set of trajectory indices
-    accumulate = function (idxs)
-        sum = nothing; sumsq = nothing
-        for i in idxs
-            ser = runone(seeds[i])
-            if sum === nothing
-                sum   = [Vector{Any}([ser[j][k]      for k in 1:nsteps]) for j in 1:nobs]
-                sumsq = [Vector{Any}([abs2.(ser[j][k]) for k in 1:nsteps]) for j in 1:nobs]
-            else
-                for j in 1:nobs, k in 1:nsteps
-                    sum[j][k]   = sum[j][k]   .+ ser[j][k]
-                    sumsq[j][k] = sumsq[j][k] .+ abs2.(ser[j][k])
-                end
-            end
-        end
-        (sum, sumsq)
-    end
-
-    nchunks = parallel == :threads ? max(1, min(Threads.nthreads(), ntraj)) : 1
-    chunks = dividerange(collect(1:ntraj), nchunks)
-    partials = Vector{Any}(undef, nchunks)
-    if parallel == :threads
-        Threads.@threads for c in 1:nchunks
-            partials[c] = accumulate(chunks[c])
-        end
-    else
-        for c in 1:nchunks
-            partials[c] = accumulate(chunks[c])
-        end
-    end
-
-    # combine partial sums
-    tot   = [Vector{Any}(undef, nsteps) for _ in 1:nobs]
-    totsq = [Vector{Any}(undef, nsteps) for _ in 1:nobs]
-    for j in 1:nobs, k in 1:nsteps
-        tot[j][k]   = mapreduce(p -> p[1][j][k], (a, b) -> a .+ b, partials)
-        totsq[j][k] = mapreduce(p -> p[2][j][k], (a, b) -> a .+ b, partials)
-    end
-
-    meanvals = map(1:nobs) do j
-        [tot[j][k] ./ ntraj for k in 1:nsteps]
-    end
-    stdvals = map(1:nobs) do j
-        [sqrt.(max.(totsq[j][k] ./ ntraj .- abs2.(tot[j][k] ./ ntraj), 0.0)) for k in 1:nsteps]
-    end
-
-    ks = keys(observables)
-    EnsembleResult(saveat, NamedTuple{ks}(Tuple(meanvals)), NamedTuple{ks}(Tuple(stdvals)), Int(ntraj))
-end
-
-#---------------------------------------------------------------------------------------------------
-# Helper: split a vector into `nthreads` contiguous chunks
-#---------------------------------------------------------------------------------------------------
-function dividerange(vec::AbstractVector, nthreads::Integer)
-    list = Vector{Vector{eltype(vec)}}(undef, nthreads)
-    eachthreads, left = divrem(length(vec), nthreads)
-    start = 1
-    for i = 1:left
-        stop = start + eachthreads
-        list[i] = vec[start:stop]
-        start = stop + 1
-    end
-    for i = left+1:nthreads-1
-        stop = start + eachthreads - 1
-        list[i] = vec[start:stop]
-        start = stop + 1
-    end
-    list[nthreads] = vec[start:end]
-    list
-end

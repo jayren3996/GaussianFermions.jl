@@ -1,14 +1,26 @@
 #---------------------------------------------------------------------------------------------------
-# Quantum trajectories for Majorana/BdG covariance states
+# Quantum-trajectory primitives for Majorana/BdG covariance states
 #
-# Building blocks for monitored BdG dynamics. Projective occupation measurement is the
-# fundamental conditional update: measuring mode i selects the 2×2 Majorana block
-# (xᵢ, pᵢ) to the definite-occupation covariance σ and conditions the rest by the
-# fermionic-Gaussian Schur complement. Verified against the number-conserving
-# `SlaterState` measurement.
+# Low-level building blocks for monitored BdG dynamics. There is no trajectory
+# "runner": the caller owns the loop (when to evolve, draw a click, measure,
+# accumulate) and composes these primitives. The three conditional updates are:
+#
+#   measure!(s, i)            projective occupation collapse (Schur complement)
+#   apply_click!(s, ℓ)        a linear-jump (MCWF) click;  jump_rate(s, ℓ) is its rate
+#   apply_noclick!(s, ℓs, dt) the MCWF no-click drift for those jumps
+#   weak_measure!(s, i, α)    the weak Gaussian filter exp(α nᵢ) (continuous monitoring)
+#
+# Each is validated against the number-conserving `SlaterState` and exact
+# diagonalization (see test/runtests.jl).
 #---------------------------------------------------------------------------------------------------
-export measure!, step!, step_diffusive!, MajoranaJumps
+export weak_measure!, loss_jump, gain_jump, majorana_jump
 
+#---------------------------------------------------------------------------------------------------
+# Projective occupation measurement
+#
+# Measuring mode i selects the 2×2 Majorana block (xᵢ, pᵢ) to the definite-occupation
+# covariance σ and conditions the rest by the fermionic-Gaussian Schur complement.
+#---------------------------------------------------------------------------------------------------
 # Definite-occupation covariance block for the Majorana pair (xᵢ, pᵢ):
 # nᵢ = 1 → [0 -1; 1 0] (Γ[i,i+L] = 1-2nᵢ = -1), nᵢ = 0 → [0 1; -1 0].
 _occ_block(occupied::Bool) = occupied ? [0.0 -1.0; 1.0 0.0] : [0.0 1.0; -1.0 0.0]
@@ -30,29 +42,6 @@ function measure!(s::MajoranaState, i::Integer; rng::AbstractRNG=Random.default_
     occupied
 end
 
-"""
-    step!(s::MajoranaState, O::AbstractMatrix, monitors, dt; rng=Random.default_rng())
-    step!(s::MajoranaState, H::BdGHamiltonian, monitors, dt; rng=Random.default_rng())
-
-One monitored-trajectory step: apply the unitary (covariance propagator `O`, or
-`propagator(H, dt)`), then projectively measure each monitored site. `monitors` is an
-iterable of `(site, rate)` pairs; site `i` is measured with probability `rate*dt`.
-
-Projective measurement of `nᵢ` at rate `γ` averages to the dephasing Lindblad
-`D[√(2γ) nᵢ]`, so the trajectory ensemble reproduces
-`MajoranaLindblad(H; dephasing_ops=[(eᵢ, 2γ)])` (verified against `MajoranaLindblad`).
-"""
-function step!(s::MajoranaState, O::AbstractMatrix, monitors, dt::Real; rng::AbstractRNG=Random.default_rng())
-    evolve!(s, O)
-    for (i, γ) in monitors
-        rand(rng) < γ * dt && measure!(s, i; rng)
-    end
-    s
-end
-
-step!(s::MajoranaState, H::BdGHamiltonian, monitors, dt::Real; rng::AbstractRNG=Random.default_rng()) =
-    step!(s, propagator(H, dt), monitors, dt; rng)
-
 function _project_occupation!(s::MajoranaState, i::Integer, occupied::Bool)
     L = nmodes(s)
     Γ = s.Gamma
@@ -69,80 +58,70 @@ function _project_occupation!(s::MajoranaState, i::Integer, occupied::Bool)
 end
 
 #---------------------------------------------------------------------------------------------------
-# Linear (loss/gain/pairing) quantum-jump unraveling (MCWF) on the covariance
+# Linear (loss/gain/pairing) quantum jumps — MCWF primitives
 #
-# A linear Dirac jump L = √γ Σᵢ aᵢcᵢ + bᵢcᵢ⁺ is the Majorana-linear operator
-# L = ℓᵀω with the same jump vector ℓ used by `MajoranaLindblad`. On a Gaussian
-# state the conditional dynamics stay Gaussian:
+# A linear Dirac jump L = √γ Σᵢ aᵢcᵢ + bᵢcᵢ⁺ is the Majorana-linear operator L = ℓᵀω,
+# with the same complex jump vector ℓ (length 2L) used by `MajoranaLindblad`. On a
+# Gaussian state the conditional dynamics stay Gaussian:
 #   • G ≡ ⟨ωωᵀ⟩ = I − iΓ is Hermitian; the click rate is N = ℓ†Gℓ (real ≥ 0).
-#   • A click sends Γ → Γ + (i/N)(v̄ vᵀ − v v̄ᵀ) with v = Gℓ  (Wick's theorem;
-#     the increment is real antisymmetric — verified analytically and vs ED).
+#   • A click sends Γ → Γ + (i/N)(v̄ vᵀ − v v̄ᵀ), v = Gℓ (Wick's theorem; the
+#     increment is real antisymmetric — verified analytically and vs ED).
 #   • The no-click branch follows the MCWF drift: the deterministic `MajoranaLindblad`
-#     dissipator drift for these jumps minus Σ N_m(Γ'_m − Γ). By construction the
-#     trajectory average reproduces `MajoranaLindblad` (verified).
+#     dissipator drift for those jumps minus Σ Nₘ(Γ'ₘ − Γ); averaged over the click /
+#     no-click branches it reproduces `MajoranaLindblad`.
 #---------------------------------------------------------------------------------------------------
 """
-    MajoranaJumps(L; loss_ops=[], gain_ops=[], majorana_ops=[], monitors=[])
+    majorana_jump(annihilate, create) -> Vector{ComplexF64}
 
-Quantum-jump (MCWF) channel set for monitored `MajoranaState` trajectories on an
-`L`-mode system. `loss_ops`/`gain_ops`/`majorana_ops` are the linear jump operators
-(same convention as [`MajoranaLindblad`](@ref)): a click renders the conditional
-Gaussian state, the no-click branch follows the effective non-Hermitian drift.
-`monitors` is a list of `(site, rate)` projective occupation measurements (as in the
-projective [`step!`](@ref)). Plugs into the existing [`ensemble`](@ref) runner;
-the trajectory average reproduces the matching `MajoranaLindblad`.
+Majorana jump vector `ℓ` (length `2L`) of the linear Dirac jump
+`L = Σᵢ annihilateᵢ cᵢ + createᵢ cᵢ⁺`, in the basis `cᵢ = (xᵢ − i pᵢ)/2`,
+`ω = [x₁…x_L, p₁…p_L]`. Pass `ℓ` to [`jump_rate`](@ref) / [`apply_click!`](@ref).
+For a rate-`γ` jump fold `√γ` into the amplitudes. Use [`loss_jump`](@ref) /
+[`gain_jump`](@ref) for the pure loss/gain cases, this for general pairing baths.
 """
-struct MajoranaJumps
-    jumps::Vector{Vector{ComplexF64}}        # linear Majorana jump vectors ℓ (length 2L)
-    monitors::Vector{Tuple{Int,Float64}}     # projective occupation monitors (site, rate)
-    twoL::Int
+function majorana_jump(annihilate::AbstractVector, create::AbstractVector)
+    length(annihilate) == length(create) ||
+        throw(ArgumentError("annihilate/create amplitude vectors must have equal length"))
+    L = length(annihilate)
+    _majorana_jump_vector(ComplexF64.(annihilate), ComplexF64.(create), L)
 end
 
-function MajoranaJumps(L::Integer; loss_ops=[], gain_ops=[], majorana_ops=[], monitors=[])
-    twoL = 2L
-    jumps = Vector{ComplexF64}[]
-    for w in loss_ops
-        v = _dense_mode_vector(w, L)
-        push!(jumps, _majorana_jump_vector(v, zeros(ComplexF64, L), L))
-    end
-    for w in gain_ops
-        v = _dense_mode_vector(w, L)
-        push!(jumps, _majorana_jump_vector(zeros(ComplexF64, L), v, L))
-    end
-    for l in majorana_ops
-        length(l) == twoL ||
-            throw(ArgumentError("Majorana jump vector length $(length(l)) does not match 2L = $twoL"))
-        lc = Vector{ComplexF64}(l)
-        all(isfinite, lc) || throw(ArgumentError("Majorana jump vector entries must be finite"))
-        push!(jumps, lc)
-    end
-    mon = Tuple{Int,Float64}[]
-    for m in monitors
-        length(m) == 2 || throw(ArgumentError("monitors must be (site, rate) pairs"))
-        i, γ = m
-        (1 ≤ Int(i) ≤ L) || throw(ArgumentError("monitor site $i out of range 1:$L"))
-        γf = Float64(γ); (isfinite(γf) && γf ≥ 0) ||
-            throw(ArgumentError("monitor rate must be finite and non-negative, got $γf"))
-        push!(mon, (Int(i), γf))
-    end
-    MajoranaJumps(jumps, mon, twoL)
-end
+"""    loss_jump(w) -> ℓ — Majorana jump vector of particle loss `L = Σᵢ wᵢ cᵢ`."""
+loss_jump(w::AbstractVector) = majorana_jump(w, zeros(ComplexF64, length(w)))
+"""    gain_jump(w) -> ℓ — Majorana jump vector of particle gain `L = Σᵢ wᵢ cᵢ⁺`."""
+gain_jump(w::AbstractVector) = majorana_jump(zeros(ComplexF64, length(w)), w)
 
-# Click rate N = ℓ†(I − iΓ)ℓ and the no-click target increment Γ' − Γ for one jump.
+# Click rate N = ℓ†(I − iΓ)ℓ and the working vector v = Gℓ for one jump.
 function _jump_rate_and_increment(Γ::AbstractMatrix, ℓ::AbstractVector)
     v = ℓ .- 1im .* (Γ * ℓ)                       # v = (I − iΓ)ℓ = Gℓ
     N = real(dot(ℓ, v))                           # ℓ†Gℓ (real, ≥ 0)
     N, v
 end
 
-function _jump_increment(N::Real, v::AbstractVector)
-    # Γ' − Γ = (i/N)(v̄ vᵀ − v v̄ᵀ); real antisymmetric.
-    inc = (1im / N) .* (conj(v) * transpose(v) .- v * transpose(conj(v)))
-    real.(inc)
+# Γ' − Γ = (i/N)(v̄ vᵀ − v v̄ᵀ); real antisymmetric.
+_jump_increment(N::Real, v::AbstractVector) =
+    real.((1im / N) .* (conj(v) * transpose(v) .- v * transpose(conj(v))))
+
+"""
+    jump_rate(s::MajoranaState, ℓ::AbstractVector) -> Float64
+
+Instantaneous click rate `⟨L†L⟩ = ℓ†(I − iΓ)ℓ` of the linear jump with Majorana
+vector `ℓ` (build `ℓ` with [`loss_jump`](@ref)/[`gain_jump`](@ref)/[`majorana_jump`](@ref)).
+The click probability over a step `dt` is `jump_rate(s, ℓ) * dt`.
+"""
+function jump_rate(s::MajoranaState, ℓ::AbstractVector)
+    length(ℓ) == size(s.Gamma, 1) ||
+        throw(ArgumentError("jump vector length $(length(ℓ)) does not match 2L = $(size(s.Gamma, 1))"))
+    first(_jump_rate_and_increment(s.Gamma, ℓ))
 end
 
-# Apply a definite click of jump `ℓ` to the conditional covariance.
-function _apply_majorana_jump!(s::MajoranaState, ℓ::AbstractVector)
+"""
+    apply_click!(s::MajoranaState, ℓ::AbstractVector) -> s
+
+Apply a definite quantum-jump (click) of the linear jump `ℓ`: render the conditional
+Gaussian state `L|ψ⟩/‖L|ψ⟩‖` on the covariance. Errors if the jump rate is zero.
+"""
+function apply_click!(s::MajoranaState, ℓ::AbstractVector)
     N, v = _jump_rate_and_increment(s.Gamma, ℓ)
     N > 0 || throw(ArgumentError("attempted a zero-rate Majorana jump"))
     G = s.Gamma .+ _jump_increment(N, v)
@@ -150,7 +129,7 @@ function _apply_majorana_jump!(s::MajoranaState, ℓ::AbstractVector)
     s
 end
 
-# MCWF no-click drift: dissipator drift − Σ N_m (Γ'_m − Γ), summed over linear jumps.
+# MCWF no-click drift: dissipator drift − Σ Nₘ(Γ'ₘ − Γ), summed over linear jumps.
 function _noclick_drift(Γ::AbstractMatrix, jumps)
     dΓ = zeros(Float64, size(Γ)...)
     for ℓ in jumps
@@ -163,8 +142,16 @@ function _noclick_drift(Γ::AbstractMatrix, jumps)
     dΓ
 end
 
-# Integrate the no-click drift over `dt` (RK4) and re-antisymmetrize.
-function _noclick_step!(s::MajoranaState, jumps, dt::Real)
+"""
+    apply_noclick!(s::MajoranaState, jumps, dt) -> s
+
+Apply the MCWF no-click back-action of the linear `jumps` (an iterable of Majorana
+jump vectors `ℓ`) over a step `dt`, by RK4-integrating the effective non-Hermitian
+drift. Pair with [`jump_rate`](@ref)/[`apply_click!`](@ref) in a trajectory loop:
+draw at most one click over `dt` (probability `Σ jump_rate*dt`), otherwise call this.
+The click/no-click average reproduces `MajoranaLindblad` built from the same jumps.
+"""
+function apply_noclick!(s::MajoranaState, jumps, dt::Real)
     Γ = s.Gamma
     k1 = _noclick_drift(Γ, jumps)
     k2 = _noclick_drift(Γ .+ (dt / 2) .* k1, jumps)
@@ -174,46 +161,6 @@ function _noclick_step!(s::MajoranaState, jumps, dt::Real)
     s.Gamma = (G .- transpose(G)) ./ 2
     s
 end
-
-"""
-    step!(s::MajoranaState, O::AbstractMatrix, J::MajoranaJumps, dt; rng=Random.default_rng())
-    step!(s::MajoranaState, H::BdGHamiltonian, J::MajoranaJumps, dt; rng=Random.default_rng())
-
-One MCWF step for monitored BdG dynamics: apply the unitary (covariance propagator
-`O`, or `propagator(H, dt)`); then for the linear jump channels draw at most one
-click over `dt` (rate `Σ N_m dt`, conditional state on click; no-click drift
-otherwise) and finally apply any projective occupation monitors. The trajectory
-ensemble reproduces the matching `MajoranaLindblad`.
-"""
-function step!(s::MajoranaState, O::AbstractMatrix, J::MajoranaJumps, dt::Real;
-               rng::AbstractRNG=Random.default_rng())
-    size(s.Gamma, 1) == J.twoL ||
-        throw(ArgumentError("MajoranaState size $(size(s.Gamma, 1)) does not match jump set size $(J.twoL)"))
-    evolve!(s, O)
-    if !isempty(J.jumps)
-        Γ = s.Gamma
-        rates = Float64[first(_jump_rate_and_increment(Γ, ℓ)) for ℓ in J.jumps]
-        total = sum(rates)
-        if rand(rng) < total * dt                       # a click occurs
-            r = rand(rng) * total
-            idx = 1; acc = rates[1]
-            while acc < r && idx < length(rates)
-                idx += 1; acc += rates[idx]
-            end
-            _apply_majorana_jump!(s, J.jumps[idx])
-        else                                             # no-click back-action
-            _noclick_step!(s, J.jumps, dt)
-        end
-    end
-    for (i, γ) in J.monitors
-        rand(rng) < γ * dt && measure!(s, i; rng)
-    end
-    s
-end
-
-step!(s::MajoranaState, H::BdGHamiltonian, J::MajoranaJumps, dt::Real;
-      rng::AbstractRNG=Random.default_rng()) =
-    step!(s, propagator(H, dt), J, dt; rng)
 
 #---------------------------------------------------------------------------------------------------
 # Continuous (diffusive / quantum-state-diffusion) occupation monitoring
@@ -227,43 +174,33 @@ step!(s::MajoranaState, H::BdGHamiltonian, J::MajoranaJumps, dt::Real;
 # Exact (no truncation); verified to machine precision vs the number-conserving
 # SlaterState filter and vs exact diagonalization (including pairing).
 #---------------------------------------------------------------------------------------------------
-# Apply the exact M = exp(α nᵢ) Gaussian filter to the covariance (renormalized state).
-function _filter_occupation!(s::MajoranaState, i::Integer, α::Real)
-    twoL = size(s.Gamma, 1)
-    p = i; q = i + nmodes(s)
+"""
+    weak_measure!(s::MajoranaState, i::Integer, α::Real) -> s
+
+Apply the exact weak-measurement Gaussian filter `exp(α nᵢ)` to the covariance and
+renormalize (`α → ±∞` recovers projective occupation/vacancy). For continuous
+(quantum-state-diffusion) occupation monitoring at rate `γ`, step it in a loop with
+`α = δW + (2⟨nᵢ⟩ − 1) γ dt`, `δW ~ 𝒩(0, γ dt)`; averaging over the noise reproduces
+the dephasing Lindblad `D[√γ nᵢ]`.
+"""
+function weak_measure!(s::MajoranaState, i::Integer, α::Real)
+    L = nmodes(s)
+    1 ≤ i ≤ L || throw(ArgumentError("mode index $i out of range 1:$L"))
+    twoL = 2L
+    p = i; q = i + L
     Γ = s.Gamma
-    G = Matrix{ComplexF64}(I, twoL, twoL) .- 1im .* Γ        # ⟨ωωᵀ⟩, Hermitian
+    Id = Matrix{ComplexF64}(I, twoL, twoL)
+    G = Id .- 1im .* Γ                                       # ⟨ωωᵀ⟩, Hermitian
     w = Γ[p, q]
     rp = G[p, :]; rq = G[q, :]
     X = rp * transpose(rq) .- rq * transpose(rp)
-    G1 = (1im / 2) .* (X .+ conj.(X))                         # dG/dα|₀ ; X̄ = c_p c_qᵀ - c_q c_pᵀ
+    G1 = (1im / 2) .* (X .+ conj.(X))                        # dG/dα|₀ ; X̄ = c_p c_qᵀ - c_q c_pᵀ
     T1 = 2w .* G .- 2 .* G1
     e = ones(twoL); e[p] = -1.0; e[q] = -1.0
-    T2 = (e * transpose(e)) .* G                              # E G E = ε_a ε_b G_ab
+    T2 = (e * transpose(e)) .* G                             # E G E = ε_a ε_b G_ab
     c = cosh(α / 2); sn = sinh(α / 2)
     Gp = (c^2 .* G .- c * sn .* T1 .+ sn^2 .* T2) ./ (cosh(α) - w * sinh(α))
-    Gout = real.(1im .* (Gp .- Matrix{ComplexF64}(I, twoL, twoL)))
+    Gout = real.(1im .* (Gp .- Id))
     s.Gamma = (Gout .- transpose(Gout)) ./ 2
-    s
-end
-
-"""
-    step_diffusive!(s::MajoranaState, monitors, dt; rng=Random.default_rng()) -> s
-
-One quantum-state-diffusion step of continuous occupation monitoring. `monitors` is
-an iterable of `(site, rate)` pairs; each monitored site applies the weak Gaussian
-filter `exp(αᵢ nᵢ)` with `αᵢ = δWᵢ + (2⟨nᵢ⟩ − 1) γᵢ dt`, `δWᵢ ~ 𝒩(0, γᵢ dt)`
-(the convention shared with the `SlaterState` [`step_diffusive!`](@ref)). Averaging
-over the Wiener noise reproduces the dephasing Lindblad `D[√γ nᵢ]`, so the ensemble
-matches `MajoranaLindblad(H; dephasing_ops=[(eᵢ, γ)])`.
-"""
-function step_diffusive!(s::MajoranaState, monitors, dt::Real; rng::AbstractRNG=Random.default_rng())
-    L = nmodes(s)
-    for (i, γ) in monitors
-        1 ≤ Int(i) ≤ L || throw(ArgumentError("monitor site $i out of range 1:$L"))
-        γf = Float64(γ)
-        α = randn(rng) * sqrt(γf * dt) + (2 * density(s, Int(i)) - 1) * γf * dt
-        _filter_occupation!(s, Int(i), α)
-    end
     s
 end
