@@ -133,3 +133,24 @@ res.mean.n[end]   # matches MajoranaLindblad(H; loss_ops=…, gain_ops=…)
 
 The MCWF ensemble reproduces the deterministic `MajoranaLindblad` built from the same
 jump operators (density and anomalous correlations, verified).
+
+For continuous (homodyne / quantum-state-diffusion) occupation monitoring, `step_diffusive!`
+applies the exact weak-measurement Gaussian filter `exp(αᵢ nᵢ)` with
+`αᵢ = δWᵢ + (2⟨nᵢ⟩ − 1)γᵢ dt` to the covariance:
+
+```julia
+using GaussianFermions
+
+Hb = BdGHamiltonian(QuadraticHamiltonian(Matrix(hopping(4; pbc=true).h)))
+s  = MajoranaState(CorrelationState(SlaterState(L=4, N=2, config="Z2")))
+for _ in 1:100
+    evolve!(s, Hb, 0.01)
+    step_diffusive!(s, [(i, 0.7) for i in 1:4], 0.01)   # monitor each site at rate 0.7
+end
+density(s)
+```
+
+It shares the unraveling convention of the number-conserving `SlaterState`
+`step_diffusive!`, and averaging over the noise reproduces the dephasing Lindblad
+`D[√γ nᵢ]` (verified to machine precision against the `SlaterState` filter and exact
+diagonalization, including paired states).

@@ -7,7 +7,7 @@
 # fermionic-Gaussian Schur complement. Verified against the number-conserving
 # `SlaterState` measurement.
 #---------------------------------------------------------------------------------------------------
-export measure!, step!, MajoranaJumps
+export measure!, step!, step_diffusive!, MajoranaJumps
 
 # Definite-occupation covariance block for the Majorana pair (xᵢ, pᵢ):
 # nᵢ = 1 → [0 -1; 1 0] (Γ[i,i+L] = 1-2nᵢ = -1), nᵢ = 0 → [0 1; -1 0].
@@ -214,3 +214,56 @@ end
 step!(s::MajoranaState, H::BdGHamiltonian, J::MajoranaJumps, dt::Real;
       rng::AbstractRNG=Random.default_rng()) =
     step!(s, propagator(H, dt), J, dt; rng)
+
+#---------------------------------------------------------------------------------------------------
+# Continuous (diffusive / quantum-state-diffusion) occupation monitoring
+#
+# The conditional weak measurement applies the Gaussian filter M = exp(α nᵢ) and
+# renormalizes. Writing nᵢ = (1 − Z)/2 with Z = i ωₚω_q (p=i, q=i+L), M ∝ cosh(α/2)I
+# − sinh(α/2)Z, and the post-filter 2-point matrix G = ⟨ωωᵀ⟩ = I − iΓ follows from
+# Wick's theorem in closed form:
+#   G' = (c²G − cs·T₁ + s²·EGE) / (cosh α − w sinh α),   w = Γ[p,q],
+#   T₁ = 2wG − i(rₚr_qᵀ − r_qrₚᵀ + r̄ₚr̄_qᵀ − r̄_qr̄ₚᵀ),  rₐ = G[a,:],  E = sign-flip of p,q.
+# Exact (no truncation); verified to machine precision vs the number-conserving
+# SlaterState filter and vs exact diagonalization (including pairing).
+#---------------------------------------------------------------------------------------------------
+# Apply the exact M = exp(α nᵢ) Gaussian filter to the covariance (renormalized state).
+function _filter_occupation!(s::MajoranaState, i::Integer, α::Real)
+    twoL = size(s.Gamma, 1)
+    p = i; q = i + nmodes(s)
+    Γ = s.Gamma
+    G = Matrix{ComplexF64}(I, twoL, twoL) .- 1im .* Γ        # ⟨ωωᵀ⟩, Hermitian
+    w = Γ[p, q]
+    rp = G[p, :]; rq = G[q, :]
+    X = rp * transpose(rq) .- rq * transpose(rp)
+    G1 = (1im / 2) .* (X .+ conj.(X))                         # dG/dα|₀ ; X̄ = c_p c_qᵀ - c_q c_pᵀ
+    T1 = 2w .* G .- 2 .* G1
+    e = ones(twoL); e[p] = -1.0; e[q] = -1.0
+    T2 = (e * transpose(e)) .* G                              # E G E = ε_a ε_b G_ab
+    c = cosh(α / 2); sn = sinh(α / 2)
+    Gp = (c^2 .* G .- c * sn .* T1 .+ sn^2 .* T2) ./ (cosh(α) - w * sinh(α))
+    Gout = real.(1im .* (Gp .- Matrix{ComplexF64}(I, twoL, twoL)))
+    s.Gamma = (Gout .- transpose(Gout)) ./ 2
+    s
+end
+
+"""
+    step_diffusive!(s::MajoranaState, monitors, dt; rng=Random.default_rng()) -> s
+
+One quantum-state-diffusion step of continuous occupation monitoring. `monitors` is
+an iterable of `(site, rate)` pairs; each monitored site applies the weak Gaussian
+filter `exp(αᵢ nᵢ)` with `αᵢ = δWᵢ + (2⟨nᵢ⟩ − 1) γᵢ dt`, `δWᵢ ~ 𝒩(0, γᵢ dt)`
+(the convention shared with the `SlaterState` [`step_diffusive!`](@ref)). Averaging
+over the Wiener noise reproduces the dephasing Lindblad `D[√γ nᵢ]`, so the ensemble
+matches `MajoranaLindblad(H; dephasing_ops=[(eᵢ, γ)])`.
+"""
+function step_diffusive!(s::MajoranaState, monitors, dt::Real; rng::AbstractRNG=Random.default_rng())
+    L = nmodes(s)
+    for (i, γ) in monitors
+        1 ≤ Int(i) ≤ L || throw(ArgumentError("monitor site $i out of range 1:$L"))
+        γf = Float64(γ)
+        α = randn(rng) * sqrt(γf * dt) + (2 * density(s, Int(i)) - 1) * γf * dt
+        _filter_occupation!(s, Int(i), α)
+    end
+    s
+end

@@ -586,6 +586,60 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test_throws ArgumentError MajoranaJumps(Lc; monitors=[(0, 1.0)])
     end
 
+    @testset "Majorana trajectory (diffusive / QSD)" begin
+        # The exact weak-measurement filter exp(α nᵢ) matches the number-conserving
+        # SlaterState orbital filter (B → exp(α) on row i, renormalize) to machine precision.
+        Random.seed!(11); L = 5; i = 3; α = 0.7
+        s = SlaterState(L=L, N=2, config="Z2")
+        s.B = Matrix(qr(randn(ComplexF64, L, L)).Q) * s.B      # generic pure state
+        m = MajoranaState(CorrelationState(s))
+        GaussianFermions._filter_occupation!(m, i, α)
+        sref = copy(s); M = Matrix{ComplexF64}(I, L, L); M[i, i] = exp(α)
+        sref.B = M * sref.B; GaussianFermions.normalize!(sref)
+        @test covariance_matrix(m) ≈ covariance_matrix(MajoranaState(CorrelationState(sref))) atol = 1e-12
+        @test all(abs.(abs.(real.(eigvals(Hermitian(im .* covariance_matrix(m))))) .- 1) .< 1e-9)  # stays pure
+
+        # …and matches exact diagonalization for a paired (number-non-conserving) state.
+        function fermion_ops(n)
+            cop(k) = (op = ones(ComplexF64, 1, 1);
+                for l in 1:n
+                    mm = l < k ? ComplexF64[1 0; 0 -1] : l == k ? ComplexF64[0 1; 0 0] : ComplexF64[1 0; 0 1]
+                    op = kron(mm, op)
+                end; op)
+            [cop(k) for k in 1:n]
+        end
+        Random.seed!(4); n = 3
+        c = fermion_ops(n); x = [c[j] + c[j]' for j in 1:n]; pm = [im * (c[j] - c[j]') for j in 1:n]
+        ω = vcat(x, pm)
+        hm = randn(ComplexF64, n, n); A = Hermitian((hm + hm') / 2)
+        Bm = randn(ComplexF64, n, n); Bpair = Bm - transpose(Bm)
+        Hmb = sum(A[a, b] * c[a]' * c[b] for a in 1:n, b in 1:n) +
+              sum(0.5 * Bpair[a, b] * c[a]' * c[b]' + 0.5 * conj(Bpair[a, b]) * c[b] * c[a] for a in 1:n, b in 1:n)
+        ψ = eigen(Hermitian((Hmb + Hmb') / 2)).vectors[:, 1]
+        Γ0 = real.([(im / 2) * (ψ' * (ω[a] * ω[b] - ω[b] * ω[a]) * ψ) for a in 1:2n, b in 1:2n])
+        β = -0.9; ψ2 = exp(β .* Matrix(c[2]' * c[2])) * ψ; ψ2 ./= norm(ψ2)
+        Γed = real.([(im / 2) * (ψ2' * (ω[a] * ω[b] - ω[b] * ω[a]) * ψ2) for a in 1:2n, b in 1:2n])
+        mp = MajoranaState(Γ0; check=false); GaussianFermions._filter_occupation!(mp, 2, β)
+        @test covariance_matrix(mp) ≈ Γed atol = 1e-10
+
+        # Diffusive ensemble reproduces the dephasing Lindblad D[√γ nᵢ] (rate γ, not 2γ).
+        Random.seed!(123); Lc = 4; γ = 0.7; T = 1.0; dt = 0.01
+        Hb = BdGHamiltonian(QuadraticHamiltonian(Matrix(hopping(Lc; pbc=true).h)))
+        rng = Random.Xoshiro(1); acc = zeros(Lc); ntraj = 1500
+        for _ in 1:ntraj
+            st = MajoranaState(CorrelationState(SlaterState(L=Lc, N=2, config="Z2")))
+            for _ in 1:round(Int, T / dt)
+                evolve!(st, Hb, dt); step_diffusive!(st, [(j, γ) for j in 1:Lc], dt; rng)
+            end
+            acc .+= density(st)
+        end
+        cl = CorrelationLindblad(Matrix(hopping(Lc; pbc=true).h);
+                dephasing_ops=[((v = zeros(ComplexF64, Lc); v[j] = 1; v), γ) for j in 1:Lc])
+        cs = CorrelationState(SlaterState(L=Lc, N=2, config="Z2")); evolve!(cs, cl, T)
+        @test isapprox(acc ./ ntraj, real.(diag(correlation_matrix(cs))); atol=0.03)
+        @test_throws ArgumentError step_diffusive!(MajoranaState([1, 0]), [(5, 1.0)], 0.1)
+    end
+
     @testset "Channels & trajectories" begin
         Random.seed!(42)
         L = 8
