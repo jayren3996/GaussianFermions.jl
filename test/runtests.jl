@@ -547,6 +547,45 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test sum(traj_density) ≈ 2 atol = 0.05                  # particle number ~conserved
     end
 
+    @testset "Majorana trajectory (linear jumps / MCWF)" begin
+        # The single-jump conditional update keeps the state physical and pure-preserving:
+        # a click on a pure state stays pure (eigenvalues of iΓ remain ±1).
+        L = 4
+        ℓ = ComplexF64[0.7, 0, 0, 0, 0.3im, 0, 0, 0]            # raw linear Majorana jump
+        m = MajoranaState(CorrelationState(SlaterState(L=L, N=2, config="Z2")))
+        N, _ = GaussianFermions._jump_rate_and_increment(covariance_matrix(m), ℓ)
+        @test N ≥ 0                                              # click rate is real, non-negative
+        GaussianFermions._apply_majorana_jump!(m, ℓ)
+        @test all(abs.(abs.(real.(eigvals(Hermitian(im .* covariance_matrix(m))))) .- 1) .< 1e-9)
+
+        # MCWF ensemble reproduces MajoranaLindblad for loss + gain (number-non-conserving).
+        Lc = 4
+        Hq = QuadraticHamiltonian(Matrix(hopping(Lc; pbc=true).h)); Hb = BdGHamiltonian(Hq)
+        loss = [sqrt(0.4) * (v = zeros(ComplexF64, Lc); v[1] = 1; v)]
+        gain = [sqrt(0.25) * (v = zeros(ComplexF64, Lc); v[3] = 1; v)]
+        init() = MajoranaState(CorrelationState(SlaterState(L=Lc, N=2, config="Z2")))
+        lind = MajoranaLindblad(Hq; loss_ops=loss, gain_ops=gain)
+        sref = init(); evolve!(sref, lind, 1.5)
+        J = MajoranaJumps(Lc; loss_ops=loss, gain_ops=gain)
+        res = ensemble(init, Hb, J; ntraj=3000, tspan=1.5, dt=0.01,
+                       observables=(n=density,), rng=Random.Xoshiro(1234))
+        @test isapprox(res.mean.n[end], density(sref); atol=0.04)
+
+        # Pairing jump generates anomalous correlations; MCWF reproduces them too.
+        ℓp = sqrt(0.5) * ComplexF64[0.5, 0.5im, 0, 0, -0.5im, -0.5, 0, 0]   # L = c1 + i c2†
+        lindp = MajoranaLindblad(Hq; majorana_ops=[ℓp])
+        srefp = init(); evolve!(srefp, lindp, 1.2)
+        @test norm(anomalous_correlation(srefp)) > 0.1          # pairing is genuinely present
+        Jp = MajoranaJumps(Lc; majorana_ops=[ℓp])
+        resp = ensemble(init, Hb, Jp; ntraj=4000, tspan=1.2, dt=0.01,
+                        observables=(n=density, F=anomalous_correlation), rng=Random.Xoshiro(7))
+        @test isapprox(resp.mean.n[end], density(srefp); atol=0.04)
+        @test isapprox(resp.mean.F[end], anomalous_correlation(srefp); atol=0.04)
+
+        @test_throws ArgumentError MajoranaJumps(Lc; majorana_ops=[ComplexF64[1, 0]])
+        @test_throws ArgumentError MajoranaJumps(Lc; monitors=[(0, 1.0)])
+    end
+
     @testset "Channels & trajectories" begin
         Random.seed!(42)
         L = 8

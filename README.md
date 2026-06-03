@@ -113,3 +113,23 @@ res.mean.S[end]   # trajectory-averaged half-chain entanglement
 
 Projective measurement of `nᵢ` at rate `γ` averages to the dephasing Lindblad
 `D[√(2γ) nᵢ]`, so the trajectory ensemble reproduces `MajoranaLindblad`.
+
+For dissipative (loss/gain/pairing) baths, `MajoranaJumps` packages the linear jump
+operators into a Monte-Carlo wave-function (MCWF) unraveling: each step draws a click
+(rendering the conditional Gaussian state) or follows the effective non-Hermitian
+no-click drift. Unlike projective monitoring this handles number-non-conserving
+(pairing) jumps and generates anomalous correlations.
+
+```julia
+using GaussianFermions
+
+H  = BdGHamiltonian(QuadraticHamiltonian(Matrix(hopping(4; pbc=true).h)))
+J  = MajoranaJumps(4; loss_ops=[sqrt(0.4) * ComplexF64[1, 0, 0, 0]],
+                      gain_ops=[sqrt(0.25) * ComplexF64[0, 0, 1, 0]])
+res = ensemble(() -> MajoranaState(CorrelationState(SlaterState(L=4, N=2, config="Z2"))),
+               H, J; ntraj=3000, tspan=1.5, dt=0.01, observables=(n = density,))
+res.mean.n[end]   # matches MajoranaLindblad(H; loss_ops=…, gain_ops=…)
+```
+
+The MCWF ensemble reproduces the deterministic `MajoranaLindblad` built from the same
+jump operators (density and anomalous correlations, verified).
