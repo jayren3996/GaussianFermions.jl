@@ -3,3 +3,5 @@
 .gitattributes
 .vscode/settings.json
 example/.DS_Store
+
+Manifest.toml
