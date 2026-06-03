@@ -94,5 +94,22 @@ anomalous_correlation(state)   # nonzero once a pairing bath acts
 ```
 
 On number-conserving channels `MajoranaLindblad` reproduces `CorrelationLindblad`
-to machine precision (see `example/Dephase.jl`). Majorana/BdG quantum-trajectory
-support is planned as a later Stage 2 slice.
+to machine precision (see `example/Dephase.jl`).
+
+Monitored BdG quantum trajectories use `measure!` (projective occupation collapse of
+a `MajoranaState`) and `step!` (unitary evolution + projective monitoring), which plug
+into the existing `ensemble` runner:
+
+```julia
+using GaussianFermions
+
+H = BdGHamiltonian(QuadraticHamiltonian(Matrix(hopping(8; pbc=true).h)))
+res = ensemble(() -> MajoranaState(CorrelationState(SlaterState(L=8, N=4, config="Z2"))),
+               H, [(i, 0.5) for i in 1:8];          # projectively monitor each site at rate 0.5
+               ntraj=200, tspan=2.0, dt=0.05,
+               observables=(n = density, S = s -> entanglement_entropy(s, 1:4)))
+res.mean.S[end]   # trajectory-averaged half-chain entanglement
+```
+
+Projective measurement of `nᵢ` at rate `γ` averages to the dephasing Lindblad
+`D[√(2γ) nᵢ]`, so the trajectory ensemble reproduces `MajoranaLindblad`.
