@@ -28,10 +28,14 @@ end
 #---------------------------------------------------------------------------------------------------
 # Majorana-form helpers (shared convention with BdGHamiltonians.jl)
 #---------------------------------------------------------------------------------------------------
-# Majorana quadratic form of a Dirac single-particle matrix A (Hermitian or
-# antisymmetric); equals the legacy `majoranaform(A)` algebra.
-_majoranaform_block(A::AbstractMatrix) =
-    (AR = real.(A); AI = imag.(A); Matrix{Float64}([-AI AR; -AR -AI]))
+# Real antisymmetric Majorana quadratic form M of a Hermitian single-particle matrix P:
+# the quadratic jump operator L = √γ Σ Pᵢⱼ c⁺ᵢcⱼ equals -i/4 ωᵀ M ω (up to a constant)
+# in the basis ω = [x₁…x_L, p₁…p_L]. Verified against exact diagonalization for complex
+# modes. (This is the Hamiltonian-form matrix, distinct from the evolution generator.)
+function _majorana_quadratic_form(P::AbstractMatrix)
+    PR, PI = real.(P), imag.(P)
+    Matrix{Float64}([PI PR; -PR PI])
+end
 
 # Majorana jump vector of a general linear Dirac jump L = Σᵢ aᵢ cᵢ + bᵢ cᵢ⁺,
 # in the basis cᵢ = (xᵢ − i pᵢ)/2, ω = [x₁…x_L, p₁…p_L].
@@ -87,7 +91,7 @@ function MajoranaLindblad(H::BdGHamiltonian; loss_ops=[], gain_ops=[], dephasing
     quad = Matrix{Float64}[]
     for op in dephasing_ops
         γ, P = _dephasing_entry_majorana(op, L)
-        push!(quad, sqrt(γ) .* _majoranaform_block(P))
+        push!(quad, sqrt(γ) .* _majorana_quadratic_form(P))
     end
 
     MajoranaLindblad(K, real.(B), imag.(B), quad, nothing)

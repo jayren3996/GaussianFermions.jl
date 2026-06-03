@@ -183,7 +183,9 @@ potential `μ`: `C = U f(β(ε-μ)) U'` with Fermi–Dirac occupations.
 function thermalstate(h::Hermitian; β::Real, μ::Real=0)
     vals, U = eigen(h)
     occ = @. 1 / (1 + exp(β * (vals - μ)))
-    CorrelationState(Hermitian(U * Diagonal(complex(occ)) * U'))
+    # eigenvectors are the orbitals B, so C = conj(B) diag(occ) Bᵀ — matches the
+    # package convention C = conj(B)transpose(B) (NOT the textbook U diag U').
+    CorrelationState(Hermitian(conj(U) * Diagonal(complex(occ)) * transpose(U)))
 end
 
 """

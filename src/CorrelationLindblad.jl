@@ -19,9 +19,13 @@ function CorrelationLindblad(h::AbstractMatrix; loss_ops=[], gain_ops=[], dephas
     damping = zeros(ComplexF64, L, L)
     source = zeros(ComplexF64, L, L)
 
+    # `damping` enters the RHS through conj(damping) (see `lindblad_rhs`); loss needs the
+    # bare rate matrix uu† in the anticommutator, so it contributes conj(uu†). Gain's
+    # contribution vv† combines with its conj(vv†) source to give the correct fill term.
+    # For real amplitudes conj is a no-op; the distinction only matters for complex modes.
     for op in loss_ops
         Γ = _linear_rate_matrix(op, L)
-        damping .+= Γ
+        damping .+= conj(Γ)
     end
     for op in gain_ops
         Γ = _linear_rate_matrix(op, L)
@@ -53,7 +57,7 @@ function CorrelationLindblad(h::AbstractMatrix, channels)
         elseif ch isa Gain
             push!(gain_ops, sqrt(γ) .* v)
         else
-            push!(dephasing_ops, (conj(v * v'), γ))
+            push!(dephasing_ops, (v * v', γ))
         end
     end
 
@@ -103,7 +107,7 @@ _dephasing_entry(op, L::Integer) =
 
 function _dephasing_projector(v::AbstractVector, L::Integer)
     mode = _dense_mode_vector(v, L)
-    conj(mode * mode')
+    mode * mode'
 end
 
 function _dephasing_projector(P::AbstractMatrix, L::Integer)
@@ -116,7 +120,7 @@ end
 function _dephasing_projector(qm::QuasiMode, L::Integer)
     qm.L == L || throw(ArgumentError("QuasiMode length $(qm.L) does not match system size $L"))
     v = _dense_mode_vector(vector(qm), L)
-    conj(v * v')
+    v * v'
 end
 
 function lindblad_rhs(Liouv::CorrelationLindblad, C::AbstractMatrix)

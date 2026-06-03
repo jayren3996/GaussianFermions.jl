@@ -290,7 +290,7 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         v = ComplexF64[1, im] / sqrt(2)
         complex_deph = CorrelationLindblad(zeros(ComplexF64, 2, 2);
                                            dephasing_ops=[(v, 0.3)])
-        Q = conj(v * v')
+        Q = v * v'                              # standard projector (matches ⟨c⁺c⟩ convention)
         @test complex_deph.dephasing[1][2] ≈ Q
 
         H2 = hopping(4; pbc=true)
@@ -390,6 +390,112 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test_throws ArgumentError majorana_lindblad_rhs(maj_lind, zeros(4, 4))
         @test_throws ArgumentError MajoranaLindblad(BdGHamiltonian(H); majorana_ops=[zeros(ComplexF64, 4)])
         @test_throws ArgumentError MajoranaLindblad(H; dephasing_ops=[(vmode,)])
+    end
+
+    @testset "BdG ground & thermal states" begin
+        Random.seed!(7)
+        L = 4
+        hm = randn(ComplexF64, L, L); h = Hermitian((hm + hm') / 2)
+
+        # Non-pairing: BdG ground state is the Fermi sea (fill negative-energy orbitals).
+        N = count(<(0), eigvals(h))
+        gs = groundstate(QuadraticHamiltonian(Matrix(h)))
+        fermi = MajoranaState(CorrelationState(SlaterState(h, N)))
+        @test normal_correlation(gs) ≈ normal_correlation(fermi) atol = 1e-10
+        @test norm(anomalous_correlation(gs)) ≈ 0 atol = 1e-10
+        @test particle_number(gs) ≈ N atol = 1e-10
+        # pure: eigenvalues of iΓ are ±1
+        @test all(abs.(abs.(real.(eigvals(Hermitian(im .* covariance_matrix(gs))))) .- 1) .< 1e-9)
+
+        # quasiparticle energies = |single-particle energies| for non-pairing
+        @test quasiparticle_energies(BdGHamiltonian(QuadraticHamiltonian(Matrix(h)))) ≈
+              sort(abs.(eigvals(h))) atol = 1e-10
+
+        # ground state is stationary under its own unitary evolution
+        Hbdg = BdGHamiltonian(QuadraticHamiltonian(Matrix(h)))
+        gevolved = evolve(gs, Hbdg, 0.83)
+        @test covariance_matrix(gevolved) ≈ covariance_matrix(gs) atol = 1e-9
+
+        # Thermal: β → ∞ recovers the ground state; non-pairing matches thermalstate(h; β)
+        @test covariance_matrix(thermalstate(Hbdg; β=1e4)) ≈ covariance_matrix(gs) atol = 1e-7
+        β = 0.7
+        th_bdg = thermalstate(Hbdg; β=β)
+        th_dirac = thermalstate(h; β=β)
+        @test normal_correlation(th_bdg) ≈ correlation_matrix(th_dirac) atol = 1e-9
+
+        # Pairing: BdG ground state has anomalous correlations, is pure and stationary.
+        Bm = randn(ComplexF64, L, L); B = Bm - transpose(Bm)
+        Hpair = BdGHamiltonian(Matrix(h), Matrix(B))
+        gp = groundstate(Hpair)
+        @test norm(anomalous_correlation(gp)) > 1e-3
+        @test all(abs.(abs.(real.(eigvals(Hermitian(im .* covariance_matrix(gp))))) .- 1) .< 1e-8)
+        @test covariance_matrix(evolve(gp, Hpair, 0.5)) ≈ covariance_matrix(gp) atol = 1e-8
+    end
+
+    @testset "thermalstate convention (complex H)" begin
+        # Regression: thermalstate must be stationary under the package's own evolve!.
+        # A complex (non-time-reversal-symmetric) H exposes the conjugation convention;
+        # a real H would hide it.
+        Random.seed!(3)
+        hm = randn(ComplexF64, 5, 5); h = Hermitian((hm + hm') / 2)
+        th = thermalstate(h; β=0.9)
+        before = correlation_matrix(th)
+        evolve!(th, QuadraticHamiltonian(Matrix(h)), 0.6)
+        @test correlation_matrix(th) ≈ before atol = 1e-10
+    end
+
+    @testset "Convention cross-checks (vs ED)" begin
+        # Validate the Majorana/Dirac conventions against explicit many-body exact
+        # diagonalization for COMPLEX Hamiltonians/jumps — the regime that hid several
+        # latent conjugation bugs (all prior tests used real operators).
+        function fermion_ops(L)
+            cop(i) = (op = ones(ComplexF64, 1, 1);
+                      for k in 1:L
+                          m = k < i ? ComplexF64[1 0; 0 -1] : k == i ? ComplexF64[0 1; 0 0] : ComplexF64[1 0; 0 1]
+                          op = kron(m, op)
+                      end; op)
+            [cop(i) for i in 1:L]
+        end
+        Random.seed!(20); L = 3; dim = 2^L
+        c = fermion_ops(L)
+        x = [c[j] + c[j]' for j in 1:L]; pmaj = [im * (c[j] - c[j]') for j in 1:L]; ω = vcat(x, pmaj)
+        hm = randn(ComplexF64, L, L); A = Hermitian((hm + hm') / 2)
+        Bm = randn(ComplexF64, L, L); Bpair = Bm - transpose(Bm)
+        Hmb = sum(A[i, j] * c[i]' * c[j] for i in 1:L, j in 1:L) +
+              sum(0.5 * Bpair[i, j] * c[i]' * c[j]' + 0.5 * conj(Bpair[i, j]) * c[j] * c[i] for i in 1:L, j in 1:L)
+        ψ = eigen(Hermitian((Hmb + Hmb') / 2)).vectors[:, 1]
+        Γtrue = real.([(im / 2) * (ψ' * (ω[a] * ω[b] - ω[b] * ω[a]) * ψ) for a in 1:2L, b in 1:2L])
+        Ctrue = [ψ' * (c[i]' * c[j]) * ψ for i in 1:L, j in 1:L]
+        Ftrue = [ψ' * (c[i] * c[j]) * ψ for i in 1:L, j in 1:L]
+
+        # fermion_correlations recovers the standard ⟨c⁺ᵢcⱼ⟩, ⟨cᵢcⱼ⟩ from the true covariance
+        ms = MajoranaState(Γtrue; check=false)
+        @test normal_correlation(ms) ≈ Ctrue atol = 1e-10
+        @test anomalous_correlation(ms) ≈ Ftrue atol = 1e-10
+
+        # BdG ground state matches ED in both sectors
+        gp = groundstate(BdGHamiltonian(Matrix(A), Matrix(Bpair)))
+        @test normal_correlation(gp) ≈ Ctrue atol = 1e-9
+        @test anomalous_correlation(gp) ≈ Ftrue atol = 1e-9
+
+        # CorrelationLindblad RHS matches ED for complex Hamiltonian + loss + gain + dephasing
+        u = sqrt(0.6) .* randn(ComplexF64, L); v = sqrt(0.3) .* randn(ComplexF64, L)
+        vm = normalize(randn(ComplexF64, L))
+        Hop = sum(A[i, j] * c[i]' * c[j] for i in 1:L, j in 1:L)
+        nd = sum(vm[i] * c[i] for i in 1:L)
+        jumps = [sum(u[i] * c[i] for i in 1:L), sum(v[i] * c[i]' for i in 1:L), sqrt(0.4) * nd' * nd]
+        Gr = randn(ComplexF64, dim, dim); ρ = Gr * Gr'; ρ = ρ / tr(ρ)
+        C0 = [tr(ρ * c[i]' * c[j]) for i in 1:L, j in 1:L]
+        Dρ = -im * (Hop * ρ - ρ * Hop) + sum(Lo * ρ * Lo' - 0.5 * (Lo' * Lo * ρ + ρ * Lo' * Lo) for Lo in jumps)
+        dC_ed = [tr(Dρ * c[i]' * c[j]) for i in 1:L, j in 1:L]
+        cl = CorrelationLindblad(Matrix(A); loss_ops=[u], gain_ops=[v], dephasing_ops=[(vm, 0.4)])
+        @test lindblad_rhs(cl, C0) ≈ dC_ed atol = 1e-9
+
+        # MajoranaLindblad agrees with the (now ED-correct) CorrelationLindblad for complex channels
+        ml = MajoranaLindblad(QuadraticHamiltonian(Matrix(A)); loss_ops=[u], gain_ops=[v], dephasing_ops=[(vm, 0.4)])
+        cs = CorrelationState(SlaterState(L=L, N=1, config="left")); mst = MajoranaState(cs)
+        for dt in (0.1, 0.15); evolve!(cs, cl, dt); evolve!(mst, ml, dt); end
+        @test normal_correlation(mst) ≈ correlation_matrix(cs) atol = 1e-9
     end
 
     @testset "Channels & trajectories" begin

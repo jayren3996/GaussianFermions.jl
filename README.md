@@ -62,6 +62,17 @@ normal_correlation(state)
 anomalous_correlation(state)
 ```
 
+Correlations follow the standard convention `Cᵢⱼ = ⟨c⁺ᵢcⱼ⟩`, `Fᵢⱼ = ⟨cᵢcⱼ⟩` with
+covariance `Γ_ab = (i/2)⟨[ωₐ,ω_b]⟩` (verified against exact diagonalization). Ground
+and thermal states of a `BdGHamiltonian` come from Bogoliubov/Nambu diagonalization:
+
+```julia
+H = BdGHamiltonian(A, B)
+gs = groundstate(H)              # BCS ground state as a MajoranaState
+ε  = quasiparticle_energies(H)   # Bogoliubov spectrum (≥ 0)
+ρβ = thermalstate(H; β=2.0)      # Gibbs state; β → ∞ recovers groundstate(H)
+```
+
 Open-system BdG dynamics use `MajoranaLindblad`, the covariance-matrix analogue of
 `CorrelationLindblad`. It supports particle loss/gain, occupation dephasing, and —
 unlike the number-conserving solver — general pairing (number-non-conserving) baths
