@@ -4,20 +4,23 @@ on:
   push:
     branches:
       - main
+    tags: ['*']
   pull_request:
   workflow_dispatch:
 
+# `deploydocs` pushes the built site to the `gh-pages` branch, so the job
+# only needs write access to repository contents.
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
+  pull-requests: read
+  statuses: write
 
 concurrency:
   group: documentation
   cancel-in-progress: true
 
 jobs:
-  build:
+  docs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,31 +38,8 @@ jobs:
           Pkg.develop(PackageSpec(path=pwd()))
           Pkg.instantiate()
 
-      - name: Build docs
+      - name: Build and deploy
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # used by deploydocs to push to gh-pages
+          DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }} # optional: SSH deploy key, enables PR previews
         run: julia --color=yes --project=docs docs/make.jl
-
-      # Pages steps only run when deploying (push to main); PR builds just
-      # validate that the docs build succeeds.
-      - name: Setup Pages
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
-
-      - name: Upload artifact
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs/build
-
-  deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
