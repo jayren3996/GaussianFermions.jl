@@ -7,7 +7,7 @@
 # fermionic-Gaussian Schur complement. Verified against the number-conserving
 # `SlaterState` measurement.
 #---------------------------------------------------------------------------------------------------
-export measure!
+export measure!, step!
 
 # Definite-occupation covariance block for the Majorana pair (xᵢ, pᵢ):
 # nᵢ = 1 → [0 -1; 1 0] (Γ[i,i+L] = 1-2nᵢ = -1), nᵢ = 0 → [0 1; -1 0].
@@ -29,6 +29,29 @@ function measure!(s::MajoranaState, i::Integer; rng::AbstractRNG=Random.default_
     _project_occupation!(s, i, occupied)
     occupied
 end
+
+"""
+    step!(s::MajoranaState, O::AbstractMatrix, monitors, dt; rng=Random.default_rng())
+    step!(s::MajoranaState, H::BdGHamiltonian, monitors, dt; rng=Random.default_rng())
+
+One monitored-trajectory step: apply the unitary (covariance propagator `O`, or
+`propagator(H, dt)`), then projectively measure each monitored site. `monitors` is an
+iterable of `(site, rate)` pairs; site `i` is measured with probability `rate*dt`.
+
+Projective measurement of `nᵢ` at rate `γ` averages to the dephasing Lindblad
+`D[√(2γ) nᵢ]`, so the trajectory ensemble reproduces
+`MajoranaLindblad(H; dephasing_ops=[(eᵢ, 2γ)])` (verified against `MajoranaLindblad`).
+"""
+function step!(s::MajoranaState, O::AbstractMatrix, monitors, dt::Real; rng::AbstractRNG=Random.default_rng())
+    evolve!(s, O)
+    for (i, γ) in monitors
+        rand(rng) < γ * dt && measure!(s, i; rng)
+    end
+    s
+end
+
+step!(s::MajoranaState, H::BdGHamiltonian, monitors, dt::Real; rng::AbstractRNG=Random.default_rng()) =
+    step!(s, propagator(H, dt), monitors, dt; rng)
 
 function _project_occupation!(s::MajoranaState, i::Integer, occupied::Bool)
     L = nmodes(s)

@@ -529,6 +529,22 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         nocc = count(_ -> measure!(MajoranaState(CorrelationState(s)), i; rng), 1:4000)
         @test isapprox(nocc / 4000, p; atol=0.03)
         @test_throws ArgumentError measure!(MajoranaState([1, 0]), 5)
+
+        # Monitored-trajectory ensemble reproduces MajoranaLindblad: projective
+        # measurement of nᵢ at rate γ ≡ dephasing D[√(2γ)nᵢ]. Density transports under
+        # hopping + monitoring; the trajectory average matches the master equation.
+        Random.seed!(123)
+        Lc = 4; γ = 0.5
+        Hb = BdGHamiltonian(QuadraticHamiltonian(Matrix(hopping(Lc; pbc=true).h)))
+        res = ensemble(() -> MajoranaState(CorrelationState(SlaterState(L=Lc, N=2, config="Z2"))),
+                       Hb, [(i, γ) for i in 1:Lc];
+                       ntraj=500, tspan=1.0, dt=0.04, observables=(n=density,), rng=Random.Xoshiro(5))
+        traj_density = reduce(hcat, res.mean.n)[:, end]
+        lind = MajoranaLindblad(QuadraticHamiltonian(Matrix(hopping(Lc; pbc=true).h));
+                                dephasing_ops=[((v = zeros(ComplexF64, Lc); v[i] = 1; v), 2γ) for i in 1:Lc])
+        mref = MajoranaState(CorrelationState(SlaterState(L=Lc, N=2, config="Z2"))); evolve!(mref, lind, 1.0)
+        @test isapprox(traj_density, density(mref); atol=0.05)   # 1/√ntraj + dt error
+        @test sum(traj_density) ≈ 2 atol = 0.05                  # particle number ~conserved
     end
 
     @testset "Channels & trajectories" begin
