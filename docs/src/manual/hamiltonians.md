@@ -1,76 +1,93 @@
 # Hamiltonians & Time Evolution
 
-## Quadratic (number-conserving) Hamiltonians
+Closed-system Gaussian dynamics are represented by single-particle or covariance
+propagators. The state representation determines which Hamiltonian type you need.
 
-A free-fermion Hamiltonian ``H = \sum_{ij} h_{ij} c_i^\dagger c_j`` is a
-`QuadraticHamiltonian`, wrapping the single-particle matrix ``h``. Convenience builders
-construct common terms:
+## Number-Conserving Hamiltonians
 
-```julia
-H = hopping(8; pbc=true)                 # nearest-neighbour hopping
-μ = chemical_potential(8; μ=0.5)         # on-site chemical potential
+`QuadraticHamiltonian` represents
+
+```math
+H = \sum_{ij} h_{ij} c_i^\dagger c_j .
 ```
 
-These return `QuadraticHamiltonian`s whose single-particle matrices can be combined.
+The matrix `h` is stored as Hermitian. Convenience builders cover the common chain
+terms:
 
-## Unitary evolution
+```@example hamiltonians
+using GaussianFermions, LinearAlgebra
 
-`evolve!` advances a state in place under a Hamiltonian for a given time:
-
-```julia
-state = CorrelationState(SlaterState(L=8, N=4, config="Z2"))
-evolve!(state, H, 0.5)
+L = 8
+H = hopping(L; J=1.0, pbc=true)
+mu = chemical_potential(fill(0.2, L))
 ```
 
-For repeated time steps, precompute a `propagator` (the single-particle evolution
-operator ``e^{-iht}``) and reuse it:
+Hamiltonians can be added:
 
 ```julia
+Htotal = H + mu
+```
+
+`evolve!(state, H, t)` applies ``e^{-iht}`` to `SlaterState` or `CorrelationState`.
+For fixed-step loops, precompute a propagator:
+
+```@example hamiltonians
+state = CorrelationState(SlaterState(L=L, N=4, config="Z2"))
 U = propagator(H, 0.05)
-for _ in 1:40
+for _ in 1:20
     evolve!(state, U)
 end
+round(particle_number(state); digits=8)
 ```
 
-`evolve` (without the bang) returns a new evolved state instead of mutating in place.
+`propagator(H, dt)` is cached on `H` for the last `dt`, so repeated fixed-step
+evolution avoids recomputing the matrix exponential.
 
-## BdG (pairing) Hamiltonians
+## BdG Hamiltonians
 
-A general quadratic Hamiltonian with pairing,
-``H = \sum_{ij} A_{ij} c_i^\dagger c_j + \tfrac12 (B_{ij} c_i^\dagger c_j^\dagger + \text{h.c.})``,
-is a `BdGHamiltonian` built from the Hermitian hopping matrix `A` and the antisymmetric
-pairing matrix `B`:
+Use `BdGHamiltonian` when pairing terms are present:
 
-```julia
+```math
+H =
+\sum_{ij} A_{ij} c_i^\dagger c_j
++ \frac{1}{2}\sum_{ij}
+\left(B_{ij} c_i^\dagger c_j^\dagger + \overline{B}_{ij} c_j c_i\right).
+```
+
+`A` must be Hermitian and `B` must be antisymmetric.
+
+```@example hamiltonians
 A = zeros(ComplexF64, 4, 4)
-B = zeros(ComplexF64, 4, 4); B[1, 2] = 0.3; B[2, 1] = -0.3
-H = BdGHamiltonian(A, B)
+B = zeros(ComplexF64, 4, 4)
+B[1, 2] = 0.3
+B[2, 1] = -0.3
+
+bdg = BdGHamiltonian(A, B)
+maj = MajoranaState([1, 0, 1, 0])
+evolve!(maj, bdg, 0.5)
+norm(anomalous_correlation(maj))
 ```
 
-A number-conserving `QuadraticHamiltonian` lifts into a `BdGHamiltonian` directly:
+A number-conserving Hamiltonian can be lifted into BdG form:
 
 ```julia
-H = BdGHamiltonian(QuadraticHamiltonian(Matrix(hopping(8; pbc=true).h)))
+bdg_hopping = BdGHamiltonian(hopping(8; pbc=true))
 ```
 
-`BdGHamiltonian` evolves a `MajoranaState`'s covariance under dense unitary dynamics, and
-supports the same `propagator` / `evolve!` interface:
+This is useful when a trajectory or Lindblad workflow uses the Majorana
+representation but the coherent part remains number-conserving.
 
-```julia
-state = MajoranaState([1, 0, 1, 0])
-evolve!(state, H, 0.5)
-```
+## Ground And Thermal States
 
-## Ground and thermal states
-
-Ground and thermal states of a `BdGHamiltonian` come from Bogoliubov / Nambu
+Ground and thermal states of `BdGHamiltonian` are built by Nambu/Bogoliubov
 diagonalization:
 
 ```julia
-gs = groundstate(H)                      # BCS ground state as a MajoranaState
-ε  = quasiparticle_energies(H)           # Bogoliubov spectrum (≥ 0)
-ρβ = thermalstate(H; β=2.0)              # Gibbs state; β → ∞ recovers groundstate(H)
+gs = groundstate(bdg)
+eps = quasiparticle_energies(bdg)
+rho = thermalstate(bdg; β=2.0)
 ```
 
-See the [Hamiltonians API reference](../reference/hamiltonians.md) and the
-[States & Spectra API reference](../reference/states.md).
+`groundstate(bdg)` and `thermalstate(bdg; β)` return `MajoranaState`s. For a
+number-conserving Hermitian single-particle Hamiltonian, `thermalstate(h; β, μ=0)`
+returns a `CorrelationState`.

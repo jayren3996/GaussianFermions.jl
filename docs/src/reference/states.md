@@ -1,10 +1,25 @@
-# States & Spectra
+# States & Modes
 
-State types for both the number-conserving (U(1)) and general quadratic (BdG / Majorana)
-representations, together with the spectral constructions (ground / thermal states,
-quasiparticle energies) that produce them.
+## State Types
 
-```@autodocs
-Modules = [GaussianFermions]
-Pages = ["/States.jl", "/Modes.jl", "/MajoranaStates.jl", "/BdGHamiltonians.jl"]
+```@docs
+SlaterState
+CorrelationState
+MajoranaState
+```
+
+## Modes And Accessors
+
+```@docs
+QuasiMode
+nmodes
+ispure
+correlation_matrix
+correlation
+covariance_matrix
+fermion_correlations
+normal_correlation
+anomalous_correlation
+thermalstate
+maximally_mixed
 ```

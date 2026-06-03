@@ -1,77 +1,92 @@
 # States
 
-GaussianFermions.jl represents fermionic Gaussian states in two complementary ways.
+GaussianFermions.jl has three public state types. The right choice is determined by
+which correlations your model can generate.
 
-## Number-conserving (U(1)) states
+| State type | Represents | Stored data |
+| --- | --- | --- |
+| `SlaterState` | Pure number-conserving Gaussian state | occupied orbitals |
+| `CorrelationState` | Mixed or pure number-conserving Gaussian state | ``C_{ij}`` |
+| `MajoranaState` | General Gaussian state, including pairing | ``\Gamma_{ab}`` |
 
-These describe states with a fixed (or fluctuating but ``U(1)``-symmetric) particle
-number, fully characterised by the single-particle correlation matrix
-``C_{ij} = \langle c_i^\dagger c_j\rangle``.
+The package convention for normal correlations is
+``C_{ij} = \langle c_i^\dagger c_j\rangle``. The Majorana covariance convention is
+given in [Conventions](conventions.md).
 
-### `SlaterState`
+## Pure Number-Conserving States
 
-A pure Slater determinant, stored by its occupied single-particle orbitals.
+`SlaterState` is the efficient representation for a pure Slater determinant. It stores
+an `L x N` matrix of occupied orbitals.
 
-```julia
-s = SlaterState(L=8, N=4, config="Z2")   # half-filled, alternating occupation
-nmodes(s)                                # 8
-ispure(s)                                # true
+```@example states
+using GaussianFermions
+
+s = SlaterState(L=8, N=4, config="Z2")
+density(s)
 ```
 
-The `config` keyword selects the initial product configuration (e.g. `"Z2"` for
-alternating occupation). You can also build a `SlaterState` directly from a set of
-orbitals.
-
-### `CorrelationState`
-
-A general (possibly mixed) number-conserving Gaussian state, stored by its correlation
-matrix. Construct it from a `SlaterState`, or from a correlation matrix directly:
+The common product-state presets are `"left"`, `"right"`, `"center"`, `"random"`, and
+`"Zn"` patterns such as `"Z2"`. You can also construct a state from occupied
+positions, a Boolean mask, a Hermitian one-body Hamiltonian at filling `N`, or an
+orbital matrix.
 
 ```julia
-state = CorrelationState(SlaterState(L=8, N=4, config="Z2"))
-correlation_matrix(state)                # the L×L matrix Cᵢⱼ
-correlation(state, i, j)                 # a single entry
+SlaterState([1, 3], 4)
+SlaterState([true, false, true, false])
+SlaterState(Hermitian(Matrix(hopping(8).h)), 4)
 ```
 
-Mixed reference states are available as helpers:
+`correlation_matrix(s)` forms ``C`` from the orbital matrix. `nmodes(s)` gives `L`,
+and `ispure(s)` is true by construction.
+
+## Mixed Number-Conserving States
+
+`CorrelationState` stores the full normal correlation matrix. Use it for mixed
+``U(1)``-symmetric states, deterministic Lindblad evolution, and finite-temperature
+states.
+
+```@example states
+state = CorrelationState(SlaterState(L=6, N=3, config="left"))
+particle_number(state)
+```
+
+Thermal and maximally mixed states are constructors for common reference states:
 
 ```julia
-thermalstate(H; β=2.0)                   # Gibbs state of a QuadraticHamiltonian
-maximally_mixed(L)                       # infinite-temperature state
+H = hopping(8; pbc=true)
+rho = thermalstate(Hermitian(Matrix(H.h)); β=2.0)
+infinite_temperature = maximally_mixed(8)
 ```
 
-## General quadratic (BdG / Majorana) states
+If a `CorrelationState` is pure, `SlaterState(state)` converts it back to orbital
+form. The conversion throws an `ArgumentError` for a genuinely mixed state.
 
-When pairing terms are present, particle number is no longer conserved and the state is
-described by the real antisymmetric Majorana covariance matrix
-``\Gamma_{ab} = \tfrac{i}{2}\langle[\omega_a, \omega_b]\rangle``.
+## Majorana States
 
-### `MajoranaState`
+`MajoranaState` stores a real antisymmetric covariance matrix and can represent
+pairing correlations. It is the state type used with `BdGHamiltonian` and
+`MajoranaLindblad`.
 
-```julia
-state = MajoranaState([1, 0, 1, 0])      # product state from occupation pattern
-covariance_matrix(state)                 # the 2L×2L covariance Γ
+```@example states
+maj = MajoranaState([1, 0, 1, 0])
+normal_correlation(maj)
 ```
 
-From a `MajoranaState` you can recover both normal and anomalous correlations:
+The product-state constructor uses `1` for occupied and `0` for empty sites. A
+number-conserving state can be lifted into the Majorana representation:
 
-```julia
-normal_correlation(state)                # Cᵢⱼ = ⟨c⁺ᵢcⱼ⟩
-anomalous_correlation(state)             # Fᵢⱼ = ⟨cᵢcⱼ⟩
-fermion_correlations(state)              # both, as a Nambu-structured object
+```@example states
+nc = CorrelationState(SlaterState(L=4, N=2, config="Z2"))
+maj = MajoranaState(nc)
+round.(density(maj); digits=3)
 ```
 
-## Converting between representations
+Use `normal_correlation(maj)` for ``C`` and `anomalous_correlation(maj)` for ``F``.
+For states converted from `SlaterState` or `CorrelationState`, the anomalous
+correlation is zero up to numerical tolerance.
 
-A number-conserving `CorrelationState` embeds into the Majorana representation:
+## Copying And Accessors
 
-```julia
-nc   = CorrelationState(SlaterState(L=4, N=2, config="Z2"))
-maj  = MajoranaState(nc)                 # same physical state, covariance form
-```
-
-This conversion is the bridge used throughout the package: prepare a state with the
-convenient `SlaterState` / `CorrelationState` API, then lift it into `MajoranaState`
-when pairing dynamics are required.
-
-See the [States & Spectra API reference](../reference/states.md) for full signatures.
+`correlation_matrix` and `covariance_matrix` return matrices that can be inspected
+without mutating the state. State-changing operations use bang functions such as
+`evolve!`, `measure!`, and `apply_click!`.

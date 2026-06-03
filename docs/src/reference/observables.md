@@ -1,9 +1,17 @@
 # Observables
 
-Densities, particle-number statistics, correlations, and entanglement diagnostics. These
-work uniformly across `SlaterState`, `CorrelationState`, and `MajoranaState`.
-
-```@autodocs
-Modules = [GaussianFermions]
-Pages = ["/Observables.jl", "/MajoranaObservables.jl"]
+```@docs
+density
+density_profile
+particle_number
+number_variance
+purity
+parity
+correlation_profile
+entanglement_entropy
+renyi_entropy
+mutual_information
+tripartite_information
+entanglement_spectrum
+entanglement_hamiltonian_spectrum
 ```

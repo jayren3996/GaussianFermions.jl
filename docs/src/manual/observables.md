@@ -1,53 +1,82 @@
 # Observables
 
-All observables of a Gaussian state are functions of its correlation / covariance matrix
-and are computed efficiently (polynomial in system size). They work uniformly across
-`SlaterState`, `CorrelationState`, and `MajoranaState`.
+Gaussian observables are computed from the restricted normal correlation matrix
+``C_A`` or the restricted Majorana covariance matrix ``\Gamma_A``. The same public
+functions work for `SlaterState`, `CorrelationState`, and `MajoranaState` where the
+quantity is defined.
 
-## Densities and particle number
+## Density And Number Diagnostics
+
+```@example observables
+using GaussianFermions
+
+s = CorrelationState(SlaterState(L=8, N=4, config="Z2"))
+density(s)
+```
+
+Useful one-body diagnostics include:
 
 ```julia
-state = CorrelationState(SlaterState(L=8, N=4, config="Z2"))
-
-density(state)              # vector of site occupations ⟨nᵢ⟩
-density(state, i)           # occupation of a single site
-density_profile(state)      # site-resolved density profile
-particle_number(state)      # total ⟨N⟩
-number_variance(state)      # Var(N)
-parity(state)               # fermion parity
-purity(state)               # Tr(ρ²)
+density(s)              # vector of occupations
+density(s, i)           # one site
+density_profile(s)      # alias for density(s)
+particle_number(s)      # total expectation value
+number_variance(s)      # Var(N)
+parity(s)               # fermion parity expectation
+purity(s)               # Tr(rho^2)
 ```
+
+For `MajoranaState`, `density` is computed from the Majorana covariance using the
+same ``C_{ii}`` convention as the number-conserving layer.
 
 ## Correlations
 
-```julia
-correlation_profile(state)  # spatial correlation profile
-```
-
-For Majorana states, both normal and anomalous correlations are available — see
-[Majorana / BdG Foundation](majorana-bdg.md).
-
-## Entanglement
-
-Entanglement of a subregion `A` (given as an index range or vector) is obtained from the
-restricted correlation matrix:
+For number-conserving states, use `correlation_matrix` or `correlation`.
 
 ```julia
-entanglement_entropy(state, 1:4)             # von Neumann entropy of region A
-renyi_entropy(state, 1:4; α=2)               # Rényi-α entropy
-entanglement_spectrum(state, 1:4)            # single-particle entanglement spectrum
-entanglement_hamiltonian_spectrum(state, 1:4)
+C = correlation_matrix(s)
+c13 = correlation(s, 1, 3)
 ```
 
-Multipartite information measures:
+For Majorana states, use:
 
 ```julia
-mutual_information(state, A, B)              # I(A:B)
-tripartite_information(state, A, B, C)       # I₃(A:B:C)
+C = normal_correlation(maj)
+F = anomalous_correlation(maj)
 ```
 
-These are the standard diagnostics for monitored / measurement-induced transitions; a
-trajectory-averaged entanglement entropy is the order parameter in the
-[Quantum Trajectories](trajectories.md) examples.
+`correlation_profile(s, i)` returns correlations from a chosen site to all sites.
 
-See the [Observables API reference](../reference/observables.md) for full signatures.
+## Entanglement And Spectra
+
+Entanglement functions take a region as a range or vector of site indices:
+
+```@example observables
+entanglement_entropy(s, 1:4)
+```
+
+The package provides:
+
+```julia
+entanglement_entropy(s, A)
+renyi_entropy(s, A; α=2)
+entanglement_spectrum(s, A)
+entanglement_hamiltonian_spectrum(s, A)
+```
+
+For a `SlaterState`, the von Neumann entropy has a pure-state orbital fast path. Mixed
+number-conserving states and Majorana states go through restricted correlation or
+covariance spectra.
+
+## Information Measures
+
+Multipartite diagnostics are useful in monitored dynamics:
+
+```julia
+mutual_information(s, A, B)
+tripartite_information(s, A, B, C)
+```
+
+These functions compose the same entropy routine used above. In trajectory studies,
+the caller usually computes them inside the sampling loop and averages the result
+over trajectories or over late-time windows.

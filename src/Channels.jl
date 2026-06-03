@@ -108,6 +108,13 @@ function hole_exp(qm::QuasiMode, γdt::Real)
     SMatrix{n,n}((1 - a) * v * v' + a * I(n))
 end
 
+"""
+    noclick_operator(ch, dt) -> Matrix
+
+Single-particle no-click Kraus operator for channel `ch` over a step `dt`.
+Occupation-monitor and loss channels suppress the occupied mode component; hole
+monitor and gain channels suppress the empty component.
+"""
 noclick_operator(ch::Union{OccupationMonitor,Loss}, dt::Real) = particle_exp(ch.mode, ch.γ * dt)
 noclick_operator(ch::Union{HoleMonitor,Gain}, dt::Real)       = hole_exp(ch.mode, ch.γ * dt)
 

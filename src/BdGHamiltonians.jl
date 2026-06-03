@@ -3,6 +3,17 @@
 #---------------------------------------------------------------------------------------------------
 export BdGHamiltonian, groundstate, quasiparticle_energies
 
+"""
+    BdGHamiltonian(K::AbstractMatrix; check=true, atol=1e-10)
+    BdGHamiltonian(A::AbstractMatrix, B::AbstractMatrix; check=true, atol=1e-10)
+    BdGHamiltonian(H::QuadraticHamiltonian)
+
+General quadratic (BdG/Majorana) Hamiltonian. The one-argument constructor accepts
+the real antisymmetric Majorana covariance generator `K`, for which
+`Γ(t) = exp(K*t) Γ(0) exp(K*t)'`. The two-block constructor accepts a Hermitian
+hopping block `A` and antisymmetric pairing block `B` in
+`Σ Aᵢⱼ cᵢ†cⱼ + 1/2 Σ(Bᵢⱼ cᵢ†cⱼ† + h.c.)`.
+"""
 mutable struct BdGHamiltonian{T<:Real} <: AbstractQuadraticHamiltonian
     K::Matrix{T}
     cache::Union{Nothing,Tuple{Float64,Matrix{T}}}

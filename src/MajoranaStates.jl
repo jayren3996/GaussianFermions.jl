@@ -115,8 +115,21 @@ function ispure(s::MajoranaState; tol::Real=1e-8)
     all(x -> abs(abs(x) - 1) < tol, ν)
 end
 
+"""
+    covariance_matrix(s::MajoranaState) -> Matrix
+
+Return a copy of the Majorana covariance matrix
+`Γ_ab = (i/2)⟨[ω_a,ω_b]⟩` in the basis
+`ω = [x_1,...,x_L,p_1,...,p_L]`.
+"""
 covariance_matrix(s::MajoranaState) = copy(s.Gamma)
 
+"""
+    fermion_correlations(s::MajoranaState) -> (C, F)
+
+Convert the Majorana covariance to Dirac correlations using the package
+conventions `C[i,j] = ⟨c_i† c_j⟩` and `F[i,j] = ⟨c_i c_j⟩`.
+"""
 function fermion_correlations(s::MajoranaState)
     G = s.Gamma
     L = nmodes(s)
@@ -129,5 +142,16 @@ function fermion_correlations(s::MajoranaState)
     Matrix{ComplexF64}(C), Matrix{ComplexF64}(F)
 end
 
+"""
+    normal_correlation(s::MajoranaState) -> Matrix{ComplexF64}
+
+Return `C[i,j] = ⟨c_i† c_j⟩` from a Majorana covariance state.
+"""
 normal_correlation(s::MajoranaState) = first(fermion_correlations(s))
+
+"""
+    anomalous_correlation(s::MajoranaState) -> Matrix{ComplexF64}
+
+Return `F[i,j] = ⟨c_i c_j⟩` from a Majorana covariance state.
+"""
 anomalous_correlation(s::MajoranaState) = last(fermion_correlations(s))

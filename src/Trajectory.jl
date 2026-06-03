@@ -34,6 +34,12 @@ function evolve!(s::CorrelationState, U::AbstractMatrix)
     s
 end
 evolve!(s::NumberConservingGaussianState, H::QuadraticHamiltonian, dt::Real) = evolve!(s, propagator(H, dt))
+
+"""
+    evolve(s, args...) -> state
+
+Return an evolved copy of `s`, using the same arguments as `evolve!`.
+"""
 evolve(s::NumberConservingGaussianState, args...) = evolve!(copy(s), args...)
 
 #---------------------------------------------------------------------------------------------------

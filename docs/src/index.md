@@ -1,27 +1,35 @@
 # GaussianFermions.jl
 
-*Simulation of fermionic Gaussian states under unitary, Lindblad, and quantum-trajectory
-(monitored) dynamics.*
+GaussianFermions.jl simulates finite fermionic Gaussian systems under quadratic
+Hamiltonian dynamics, Gaussian Lindblad dynamics, and monitored trajectory updates.
+It is written for researchers who already know the physics and need a precise Julia
+interface with explicit conventions.
 
-GaussianFermions.jl provides composable primitives for the efficient classical
-simulation of free-fermion systems. It covers two complementary representations:
+The package has two state representations:
 
-- **Number-conserving (U(1)) states** — `SlaterState` and `CorrelationState`, built
-  from the single-particle correlation matrix ``C_{ij} = \langle c_i^\dagger c_j\rangle``.
-- **General quadratic (BdG / Majorana) states** — `MajoranaState`, built from the real
-  antisymmetric Majorana covariance matrix, supporting pairing
-  (number-non-conserving) dynamics.
+- `SlaterState` stores a pure number-conserving Gaussian state by its occupied
+  orbitals.
+- `CorrelationState` stores a possibly mixed number-conserving Gaussian state by
+  ``C_{ij} = \langle c_i^\dagger c_j\rangle``.
+- `MajoranaState` stores a general Gaussian state, including pairing, by the
+  Majorana covariance matrix ``\Gamma``.
 
-On top of these states the package implements:
+## Choosing A Representation
 
-- **Unitary dynamics** via `QuadraticHamiltonian` / `BdGHamiltonian` and `propagator`.
-- **Deterministic Lindblad dynamics** via `CorrelationLindblad` and `MajoranaLindblad`,
-  including particle loss/gain, dephasing, and pairing baths.
-- **Quantum trajectories** built from low-level primitives — projective measurement,
-  quantum-jump (MCWF), and continuous (QSD) weak measurement — so you own the
-  trajectory loop and can tune it per script.
-- **Observables** — densities, particle-number statistics, entanglement entropies and
-  spectra, mutual / tripartite information.
+| Modeling need | Use |
+| --- | --- |
+| Pure fixed-particle states | `SlaterState` |
+| Mixed ``U(1)``-symmetric states | `CorrelationState` |
+| Pairing, BdG dynamics, anomalous correlators | `MajoranaState` |
+| Number-conserving quadratic Hamiltonians | `QuadraticHamiltonian` |
+| BdG Hamiltonians with pairing | `BdGHamiltonian` |
+| Deterministic ``U(1)`` open dynamics | `CorrelationLindblad` |
+| Deterministic BdG open dynamics | `MajoranaLindblad` |
+| Monitored trajectories | compose the low-level primitives in your loop |
+
+The last row is intentional. GaussianFermions.jl does not hide trajectory sampling
+behind an ensemble runner. You evolve a state, draw measurements or jumps, update the
+state, and accumulate the observables needed by your calculation.
 
 ## Installation
 
@@ -29,36 +37,32 @@ On top of these states the package implements:
 pkg> add https://github.com/jayren3996/GaussianFermions.jl
 ```
 
-## Quick example
-
 ```julia
 using GaussianFermions
-
-L = 16
-H = hopping(L; pbc=true)
-
-loss1 = zeros(ComplexF64, L); loss1[1] = sqrt(0.2)
-lind = CorrelationLindblad(H; loss_ops=[loss1])
-
-state = CorrelationState(SlaterState(L=L, N=8, config="Z2"))
-evolve!(state, lind, 1.0)
-density(state)
 ```
 
-## Where to go next
+## A Minimal Run
 
-- New here? Start with [Getting Started](getting-started.md).
-- The **Manual** walks through each layer: [States](manual/states.md),
-  [Hamiltonians & Time Evolution](manual/hamiltonians.md),
-  [Observables](manual/observables.md),
-  [Correlation-Matrix Lindblad](manual/correlation-lindblad.md),
-  [Majorana / BdG Foundation](manual/majorana-bdg.md), and
-  [Quantum Trajectories](manual/trajectories.md).
-- The [API Reference](reference/overview.md) documents every exported function and type.
+```@example home
+using GaussianFermions
 
-## Conventions
+L = 8
+H = hopping(L; pbc=true)
+state = CorrelationState(SlaterState(L=L, N=L ÷ 2, config="Z2"))
 
-Single-particle correlations follow the standard convention
-``C_{ij} = \langle c_i^\dagger c_j\rangle``, ``F_{ij} = \langle c_i c_j\rangle``, with the
-Majorana covariance matrix ``\Gamma_{ab} = \tfrac{i}{2}\langle[\omega_a, \omega_b]\rangle``.
-All conventions are verified against exact diagonalization.
+evolve!(state, H, 0.5)
+round.(density(state); digits=3)
+```
+
+## Where To Start
+
+- Read [Conventions](manual/conventions.md) before comparing signs or correlations
+  with another codebase.
+- Read [States](manual/states.md) and
+  [Hamiltonians & Time Evolution](manual/hamiltonians.md) to model a closed system.
+- Read [Lindblad Dynamics](manual/lindblad.md) for deterministic open-system
+  evolution.
+- Read [Quantum Trajectories](manual/trajectories.md) for monitored dynamics.
+- Use the [Examples](examples/free-fermion-chain.md) for complete script patterns.
+- Use the [API Reference](reference/overview.md) for signatures and mutation
+  behavior.
