@@ -15,7 +15,7 @@ makedocs(
     checkdocs = :none,
     format = Documenter.HTML(
         prettyurls = get(ENV, "CI", "false") == "true",
-        canonical = "https://jayren3996.github.io/GaussianFermions.jl/stable",
+        canonical = "https://jayren3996.github.io/GaussianFermions.jl",
     ),
     pages = [
         "Home" => "index.md",
@@ -43,10 +43,4 @@ makedocs(
             "Observables" => "reference/observables.md",
         ],
     ],
-)
-
-deploydocs(
-    repo = "github.com/jayren3996/GaussianFermions.jl",
-    devbranch = "main",
-    push_preview = true,
 )
