@@ -16,9 +16,11 @@ makedocs(
     format = Documenter.HTML(
         prettyurls = get(ENV, "CI", "false") == "true",
         canonical = "https://jayren3996.github.io/GaussianFermions.jl",
+        assets = ["assets/favicon.ico"],
     ),
     pages = [
         "Home" => "index.md",
+        "Getting Started" => "getting-started.md",
         "Manual" => [
             "Conventions" => "manual/conventions.md",
             "States" => "manual/states.md",
@@ -31,8 +33,11 @@ makedocs(
             "Free-Fermion Chain" => "examples/free-fermion-chain.md",
             "Deterministic Lindblad" => "examples/deterministic-lindblad.md",
             "Trajectories vs Lindblad" => "examples/trajectories-vs-lindblad.md",
+            "Monitoring Protocols" => "examples/monitoring-protocols.md",
+            "Measurement-Induced Transition" => "examples/measurement-induced-transition.md",
+            "Mutual & Tripartite Information" => "examples/monitored-mutual-information.md",
             "BdG Pairing" => "examples/bdg-pairing.md",
-            "Monitored Mutual Information" => "examples/monitored-mutual-information.md",
+            "Kitaev Chain" => "examples/kitaev-chain.md",
         ],
         "API Reference" => [
             "Overview" => "reference/overview.md",

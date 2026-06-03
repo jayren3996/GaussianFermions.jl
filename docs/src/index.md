@@ -1,3 +1,9 @@
+```@raw html
+<div align="center">
+<img src="assets/logo.svg" alt="GaussianFermions.jl logo" width="180"/>
+</div>
+```
+
 # GaussianFermions.jl
 
 GaussianFermions.jl simulates finite fermionic Gaussian systems under quadratic

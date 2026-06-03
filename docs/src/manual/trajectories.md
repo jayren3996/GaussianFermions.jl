@@ -62,20 +62,32 @@ default.
 
 ## Majorana Linear Jumps
 
-For `MajoranaState`, linear jumps are built as Majorana jump vectors:
+!!! warning
+    `jump_rate(s::MajoranaState, ℓ)` returns an instantaneous **rate** `⟨L†L⟩`, not a
+    probability. The per-step click probability is `jump_rate(s, ℓ) * dt`. This
+    differs from the channel form `jump_rate(ch, s, dt)`, which already includes `dt`.
 
-```julia
+For `MajoranaState`, linear jumps are built as Majorana jump vectors, and
+`jump_rate(s, ℓ)` reports each jump's instantaneous rate (here loss on the occupied
+site 1 and gain on the empty site 4 of `|1010⟩`):
+
+```@example trajectories
+using GaussianFermions
+
+s = MajoranaState(CorrelationState(SlaterState(L=4, N=2, config="Z2")))
 jumps = [
     loss_jump(sqrt(0.4) * ComplexF64[1, 0, 0, 0]),
-    gain_jump(sqrt(0.25) * ComplexF64[0, 0, 1, 0]),
+    gain_jump(sqrt(0.25) * ComplexF64[0, 0, 0, 1]),
 ]
+round.([jump_rate(s, ℓ) for ℓ in jumps]; digits=4)
 ```
 
-Here `jump_rate(s, ell)` returns an instantaneous rate, not a probability. The caller
-multiplies by `dt` when drawing events.
+A monitored step multiplies the rates by `dt` to draw events (fixed seed for
+reproducibility):
 
 ```julia
-rates = [jump_rate(s, ell) for ell in jumps]
+rng = Xoshiro(1); dt = 0.05
+rates = [jump_rate(s, ℓ) for ℓ in jumps]
 if rand(rng) < sum(rates) * dt
     apply_click!(s, jumps[argmax(rand(rng) .< cumsum(rates) ./ sum(rates))])
 else

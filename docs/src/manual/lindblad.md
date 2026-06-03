@@ -81,3 +81,11 @@ Projective monitoring, MCWF jumps, and weak-measurement updates can unravel the 
 Lindblad dynamics. GaussianFermions.jl exposes those conditional updates as low-level
 primitives; see [Quantum Trajectories](trajectories.md) and
 [Trajectories vs Lindblad](../examples/trajectories-vs-lindblad.md).
+
+!!! note "Linear vs nonlinear observables"
+    Different unravelings of the same Lindbladian agree on **linear** observables
+    (e.g. density) after averaging, but **entanglement is trajectory-nonlinear** and
+    depends on the unraveling — it must be computed as a trajectory average, never
+    from the deterministic solver. See
+    [Monitoring Protocols](../examples/monitoring-protocols.md) and
+    [Measurement-Induced Transition](../examples/measurement-induced-transition.md).

@@ -70,13 +70,23 @@ covariance spectra.
 
 ## Information Measures
 
-Multipartite diagnostics are useful in monitored dynamics:
+Multipartite diagnostics are central to monitored dynamics. They are nonlinear in the
+state, so a product state has none — correlations have to be built up first:
 
-```julia
-mutual_information(s, A, B)
-tripartite_information(s, A, B, C)
+```@example observables
+evolved = CorrelationState(SlaterState(L=8, N=4, config="Z2"))
+evolve!(evolved, hopping(8; pbc=true), 1.0)
+
+A = 1:2; B = 3:4; C = 5:6
+(mutual     = round(mutual_information(evolved, A, B); digits=4),
+ tripartite = round(tripartite_information(evolved, A, B, C); digits=4))
 ```
 
-These functions compose the same entropy routine used above. In trajectory studies,
-the caller usually computes them inside the sampling loop and averages the result
-over trajectories or over late-time windows.
+!!! note
+    Because `mutual_information` and `tripartite_information` are nonlinear, in
+    trajectory studies the caller computes them inside the sampling loop and averages
+    over trajectories or a late-time window. `tripartite_information` is the
+    scale-invariant order parameter used in the
+    [Measurement-Induced Transition](../examples/measurement-induced-transition.md)
+    and [Mutual & Tripartite Information](../examples/monitored-mutual-information.md)
+    examples.

@@ -294,8 +294,10 @@ Complete, runnable scripts live in [`example/`](example/):
 - [`FreeFermion.jl`](example/FreeFermion.jl) — free-fermion evolution and a full trajectory loop.
 - [`MI.jl`](example/MI.jl) — monitored mutual information.
 - [`Dephase.jl`](example/Dephase.jl) — dephasing as a trajectory average versus the Lindblad solver.
+- [`Transition.jl`](example/Transition.jl) — measurement-induced entanglement transition (`⟨S⟩` vs monitoring rate).
+- [`Protocols.jl`](example/Protocols.jl) — projective / MCWF / QSD unravelings of occupation monitoring.
 
-Worked, narrated versions of these (and more) are in the [documentation examples](https://jayren3996.github.io/GaussianFermions.jl/examples/free-fermion-chain/).
+Worked, narrated versions of these (and more) are in the [documentation examples](https://jayren3996.github.io/GaussianFermions.jl/examples/free-fermion-chain/), including the [measurement-induced transition](https://jayren3996.github.io/GaussianFermions.jl/examples/measurement-induced-transition/) and [monitoring-protocol comparison](https://jayren3996.github.io/GaussianFermions.jl/examples/monitoring-protocols/).
 
 ## 📄 License
 

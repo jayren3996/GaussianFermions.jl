@@ -59,8 +59,13 @@ H =
 ```@example hamiltonians
 A = zeros(ComplexF64, 4, 4)
 B = zeros(ComplexF64, 4, 4)
-B[1, 2] = 0.3
-B[2, 1] = -0.3
+for j in 1:4
+    A[j, j] = -0.5                       # chemical potential −μ
+end
+for j in 1:3
+    A[j, j+1] = -1.0; A[j+1, j] = -1.0   # hopping (Hermitian)
+    B[j, j+1] =  1.0; B[j+1, j] = -1.0   # p-wave pairing (antisymmetric)
+end
 
 bdg = BdGHamiltonian(A, B)
 maj = MajoranaState([1, 0, 1, 0])
@@ -82,10 +87,12 @@ representation but the coherent part remains number-conserving.
 Ground and thermal states of `BdGHamiltonian` are built by Nambu/Bogoliubov
 diagonalization:
 
-```julia
-gs = groundstate(bdg)
+```@example hamiltonians
+gs  = groundstate(bdg)
 eps = quasiparticle_energies(bdg)
 rho = thermalstate(bdg; β=2.0)
+(min_energy = round(minimum(eps); digits=4),
+ gs_number  = round(particle_number(gs); digits=4))
 ```
 
 `groundstate(bdg)` and `thermalstate(bdg; β)` return `MajoranaState`s. For a
