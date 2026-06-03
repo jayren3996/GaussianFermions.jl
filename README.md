@@ -1,6 +1,7 @@
 # GaussianFermions.jl
 
-[![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://jayren3996.github.io/GaussianFermions.jl)
+[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://jayren3996.github.io/GaussianFermions.jl/stable)
+[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://jayren3996.github.io/GaussianFermions.jl/dev)
 
 Simulation of fermionic Gaussian states under unitary, Lindblad, and quantum-trajectory
 (monitored) dynamics. Supports number-conserving free-fermion states as well as general
