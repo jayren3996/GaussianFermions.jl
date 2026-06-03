@@ -5,6 +5,25 @@ export CorrelationLindblad, lindblad_rhs, steadystate
 
 function steadystate end
 
+"""
+    CorrelationLindblad(h; loss_ops=[], gain_ops=[], dephasing_ops=[])
+    CorrelationLindblad(H::QuadraticHamiltonian; kwargs...)
+
+Deterministic correlation-matrix Lindblad generator for number-conserving (U(1)) open
+systems. The coherent part is the single-particle matrix `h` (or a
+[`QuadraticHamiltonian`](@ref)); dissipation is supplied as Lindblad amplitude vectors.
+
+For a jump operator acting on a normalized mode `v` at rate `γ`, pass `sqrt(γ) .* v`:
+
+- `loss_ops` — particle-loss amplitudes (`∝ cᵥ`),
+- `gain_ops` — particle-gain amplitudes (`∝ c⁺ᵥ`),
+- `dephasing_ops` — `(mode, rate)` pairs for occupation dephasing.
+
+Evolve a [`CorrelationState`](@ref) with `evolve!(state, lind, dt)`, or solve directly
+for the unique attractor with [`steadystate`](@ref). The deterministic solver is dense
+and intended for finite systems. See also [`MajoranaLindblad`](@ref) for the BdG /
+pairing generalisation, and [`lindblad_rhs`](@ref) for the bare right-hand side.
+"""
 mutable struct CorrelationLindblad
     h::Hermitian{ComplexF64,Matrix{ComplexF64}}
     damping::Matrix{ComplexF64}
@@ -123,6 +142,13 @@ function _dephasing_projector(qm::QuasiMode, L::Integer)
     v * v'
 end
 
+"""
+    lindblad_rhs(L::CorrelationLindblad, C) -> dC
+
+Right-hand side `dC/dt` of the correlation-matrix Lindblad equation for the generator `L`
+evaluated at correlation matrix `C` (or a [`CorrelationState`](@ref)). Useful for
+plugging the dynamics into a custom integrator.
+"""
 function lindblad_rhs(Liouv::CorrelationLindblad, C::AbstractMatrix)
     Cmat = Matrix{ComplexF64}(C)
     size(Cmat) == size(Liouv.h) ||
@@ -205,6 +231,15 @@ end
 evolve(s::CorrelationState, Liouv::CorrelationLindblad, dt::Real; kwargs...) =
     evolve!(copy(s), Liouv, dt; kwargs...)
 
+"""
+    steadystate(L::CorrelationLindblad; check_unique=true, atol=1e-10, rtol=1e-8) -> CorrelationState
+
+Solve directly for the steady state of the [`CorrelationLindblad`](@ref) generator `L` by
+finding the fixed point of the affine correlation-matrix dynamics. Valid for finite
+systems with a unique attractive steady state; with `check_unique=true` an error is raised
+if the dense generator is numerically singular (non-unique steady state). The result is
+validated against the master-equation residual and the physical occupation range.
+"""
 function steadystate(Liouv::CorrelationLindblad; atol::Real=1e-10, rtol::Real=1e-8,
                      rank_rtol::Real=eps(Float64), check_unique::Bool=true)
     M, b = _affine_generator(Liouv)
