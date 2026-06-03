@@ -498,6 +498,39 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test normal_correlation(mst) ≈ correlation_matrix(cs) atol = 1e-9
     end
 
+    @testset "Majorana trajectory (measure!)" begin
+        Random.seed!(99)
+        L = 4
+        s = SlaterState(L, 2)
+        i = 3
+        qm = QuasiMode([i], ComplexF64[1], L)
+
+        # Post-measurement covariance matches the number-conserving SlaterState collapse.
+        sc1 = copy(s); GaussianFermions.apply_click!(OccupationMonitor(qm), sc1,
+                                                     GaussianFermions.inner(qm, sc1.B))
+        GaussianFermions.normalize!(sc1)
+        m1 = MajoranaState(CorrelationState(s)); GaussianFermions._project_occupation!(m1, i, true)
+        @test covariance_matrix(m1) ≈ covariance_matrix(MajoranaState(CorrelationState(sc1))) atol = 1e-9
+        @test density(m1)[i] ≈ 1 atol = 1e-10
+
+        sc0 = copy(s); GaussianFermions.apply_click!(HoleMonitor(qm), sc0,
+                                                     GaussianFermions.inner(qm, sc0.B))
+        GaussianFermions.normalize!(sc0)
+        m0 = MajoranaState(CorrelationState(s)); GaussianFermions._project_occupation!(m0, i, false)
+        @test covariance_matrix(m0) ≈ covariance_matrix(MajoranaState(CorrelationState(sc0))) atol = 1e-9
+        @test density(m0)[i] ≈ 0 atol = 1e-10
+
+        # collapsed states stay pure (eigenvalues of iΓ are ±1)
+        @test all(abs.(abs.(real.(eigvals(Hermitian(im .* covariance_matrix(m1))))) .- 1) .< 1e-9)
+
+        # Born statistics: empirical occupied-fraction ≈ ⟨nᵢ⟩
+        p = density(MajoranaState(CorrelationState(s)))[i]
+        rng = Random.Xoshiro(7)
+        nocc = count(_ -> measure!(MajoranaState(CorrelationState(s)), i; rng), 1:4000)
+        @test isapprox(nocc / 4000, p; atol=0.03)
+        @test_throws ArgumentError measure!(MajoranaState([1, 0]), 5)
+    end
+
     @testset "Channels & trajectories" begin
         Random.seed!(42)
         L = 8

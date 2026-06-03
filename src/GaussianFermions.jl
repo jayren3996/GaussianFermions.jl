@@ -16,5 +16,6 @@ include("MajoranaStates.jl")
 include("BdGHamiltonians.jl")
 include("MajoranaObservables.jl")
 include("MajoranaLindblad.jl")
+include("MajoranaTrajectory.jl")
 
 end # module GaussianFermions
