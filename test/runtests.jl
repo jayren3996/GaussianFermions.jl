@@ -338,6 +338,60 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test_throws ArgumentError steadystate(deph_lind)
     end
 
+    @testset "MajoranaLindblad" begin
+        unitmode(L, i) = (v = zeros(ComplexF64, L); v[i] = 1; v)
+        L = 3
+        H = hopping(L; pbc=true)
+        γ = 0.6
+        vmode = normalize(ComplexF64[1, 1, 0])
+
+        # Number-conserving sector must match CorrelationLindblad exactly: build the
+        # same Dirac generator both ways, evolve a CorrelationState and the converted
+        # MajoranaState, and compare normal correlations.
+        loss = sqrt(γ) .* unitmode(L, 1)
+        gain = sqrt(γ) .* unitmode(L, 2)
+        corr_lind = CorrelationLindblad(H; loss_ops=[loss], gain_ops=[gain],
+                                        dephasing_ops=[(vmode, γ)])
+        maj_lind = MajoranaLindblad(H; loss_ops=[loss], gain_ops=[gain],
+                                    dephasing_ops=[(vmode, γ)])
+
+        c0 = CorrelationState(SlaterState(L=L, N=2, config="left"))
+        m0 = MajoranaState(c0)
+        for dt in (0.13, 0.13, 0.4)
+            evolve!(c0, corr_lind, dt)
+            evolve!(m0, maj_lind, dt)
+        end
+        @test normal_correlation(m0) ≈ correlation_matrix(c0) atol = 1e-9
+        @test norm(anomalous_correlation(m0)) ≈ 0 atol = 1e-9   # number-conserving stays paired-free
+
+        # rhs agrees with CorrelationLindblad (mapped through the C↔Γ bijection)
+        mrhs = majorana_lindblad_rhs(maj_lind, MajoranaState(c0))
+        @test mrhs ≈ -transpose(mrhs) atol = 1e-12              # real antisymmetric
+
+        # steady state of a single loss+gain mode matches the analytic balance
+        ss_maj = steadystate(MajoranaLindblad(chemical_potential(zeros(1));
+                                              loss_ops=[ComplexF64[sqrt(0.6)]],
+                                              gain_ops=[ComplexF64[sqrt(0.2)]]))
+        @test density(ss_maj) ≈ [0.25] atol = 1e-8
+
+        # Pairing: a jump operator with a creation component generates anomalous
+        # correlations and keeps the state physical.
+        lpair = zeros(ComplexF64, 2L)
+        lpair[1] = 0.5; lpair[1+L] = -0.5im            # c₁
+        lpair[2] = 0.5; lpair[2+L] = 0.5im             # c₂⁺
+        lpair .*= sqrt(γ)
+        pair_lind = MajoranaLindblad(BdGHamiltonian(H); majorana_ops=[lpair])
+        ms = MajoranaState([0, 0, 0])
+        evolve!(ms, pair_lind, 2.5)
+        @test norm(anomalous_correlation(ms)) > 1e-3
+        @test maximum(abs.(real.(eigvals(Hermitian(im .* covariance_matrix(ms)))))) ≤ 1 + 1e-8
+
+        # input validation
+        @test_throws ArgumentError majorana_lindblad_rhs(maj_lind, zeros(4, 4))
+        @test_throws ArgumentError MajoranaLindblad(BdGHamiltonian(H); majorana_ops=[zeros(ComplexF64, 4)])
+        @test_throws ArgumentError MajoranaLindblad(H; dephasing_ops=[(vmode,)])
+    end
+
     @testset "Channels & trajectories" begin
         Random.seed!(42)
         L = 8
@@ -440,10 +494,12 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test mi_vs_gamma(; L=8, γ=0.5, ntraj=2, tspan=0.5, dt=0.05) isa Real
 
         ref = lindblad_den_evo(; L=8, d=[1, 3, 1], T=0.5)
+        maj = majorana_den_evo(; L=8, d=[1, 3, 1], T=0.5)
         jmp = jump_den_evo(; L=8, d=[1, 3, 1], ntraj=4, T=0.5)
         qsd = qsd_den_evo(; L=8, d=[1, 3, 1], ntraj=4, T=0.5)
-        @test size(ref) == size(jmp) == size(qsd) == (8, 10)
+        @test size(ref) == size(maj) == size(jmp) == size(qsd) == (8, 10)
         @test all(0 .≤ ref .≤ 1)
+        @test maj ≈ ref atol = 1e-9   # Dirac and Majorana master equations agree
     end
 
 end

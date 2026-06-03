@@ -62,5 +62,26 @@ normal_correlation(state)
 anomalous_correlation(state)
 ```
 
-Majorana/BdG Lindblad dynamics and trajectory support are planned as later Stage 2
-slices.
+Open-system BdG dynamics use `MajoranaLindblad`, the covariance-matrix analogue of
+`CorrelationLindblad`. It supports particle loss/gain, occupation dephasing, and —
+unlike the number-conserving solver — general pairing (number-non-conserving) baths
+via raw Majorana jump vectors.
+
+```julia
+using GaussianFermions
+
+H = hopping(4; pbc=true)
+lind = MajoranaLindblad(H; loss_ops=[sqrt(0.3) * ComplexF64[1, 0, 0, 0]],
+                        dephasing_ops=[(ComplexF64[1, 1, 0, 0] / sqrt(2), 0.5)])
+
+state = MajoranaState(CorrelationState(SlaterState(L=4, N=2, config="Z2")))
+evolve!(state, lind, 1.0)
+density(state)
+
+normal_correlation(state)
+anomalous_correlation(state)   # nonzero once a pairing bath acts
+```
+
+On number-conserving channels `MajoranaLindblad` reproduces `CorrelationLindblad`
+to machine precision (see `example/Dephase.jl`). Majorana/BdG quantum-trajectory
+support is planned as a later Stage 2 slice.

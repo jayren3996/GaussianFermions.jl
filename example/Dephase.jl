@@ -58,7 +58,7 @@ end
 #--------------------------------------------------------------------------------
 # Deterministic reference: correlation-matrix Lindblad master equation
 #--------------------------------------------------------------------------------
-"Exact density evolution from the deterministic `CorrelationLindblad` generator."
+"Exact density evolution from the deterministic Dirac `CorrelationLindblad` generator."
 function lindblad_den_evo(; L=32, γ=0.5, dt=0.05, T=10.0, d=[1, 3, 1])
     H = hopping(L; pbc=false)
     lind = CorrelationLindblad(H, monitor_channels(d, L; γ=γ))
@@ -67,15 +67,27 @@ function lindblad_den_evo(; L=32, γ=0.5, dt=0.05, T=10.0, d=[1, 3, 1])
     reduce(hcat, [(evolve!(state, lind, dt); density(state)) for _ in t])
 end
 
+"Exact density evolution from the deterministic Majorana `MajoranaLindblad` generator."
+function majorana_den_evo(; L=32, γ=0.5, dt=0.05, T=10.0, d=[1, 3, 1])
+    H = hopping(L; pbc=false)
+    lind = MajoranaLindblad(H, monitor_channels(d, L; γ=γ))
+    state = MajoranaState(CorrelationState(SlaterState(L=L, N=L ÷ 2, config="left")))
+    t = dt:dt:T
+    reduce(hcat, [(evolve!(state, lind, dt); density(state)) for _ in t])
+end
+
 #--------------------------------------------------------------------------------
-# trajectory vs deterministic Lindblad: agreement improves as 1/√ntraj
+# All four methods must agree; the Dirac and Majorana master equations agree to
+# machine precision, and the trajectory averages approach them as 1/√ntraj.
 function main(; L=32, d=[1, 3, 1], ntraj=1000, T=10.0)
     den_ref = lindblad_den_evo(; L=L, d=d, T=T)
+    den_maj = majorana_den_evo(; L=L, d=d, T=T)
     den_jmp = jump_den_evo(; L=L, d=d, ntraj=ntraj, T=T)
     den_qsd = qsd_den_evo(; L=L, d=d, ntraj=ntraj, T=T)
-    println("Jump vs Lindblad:  ", norm(den_jmp - den_ref))
-    println("QSD  vs Lindblad:  ", norm(den_qsd - den_ref))
-    den_ref, den_jmp, den_qsd
+    println("Majorana vs Dirac Lindblad: ", norm(den_maj - den_ref))
+    println("Jump     vs Lindblad:       ", norm(den_jmp - den_ref))
+    println("QSD      vs Lindblad:       ", norm(den_qsd - den_ref))
+    den_ref, den_maj, den_jmp, den_qsd
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__
