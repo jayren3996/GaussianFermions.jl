@@ -90,3 +90,8 @@ correlation is zero up to numerical tolerance.
 `correlation_matrix` and `covariance_matrix` return matrices that can be inspected
 without mutating the state. State-changing operations use bang functions such as
 `evolve!`, `measure!`, and `apply_click!`.
+
+See [Free-Fermion Chain](../examples/free-fermion-chain.md) for `SlaterState`
+workflows, [BdG Pairing](../examples/bdg-pairing.md) and
+[Kitaev Chain](../examples/kitaev-chain.md) for `MajoranaState` workflows, and the
+[States & Modes API reference](../reference/states.md) for signatures.

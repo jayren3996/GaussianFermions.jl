@@ -103,8 +103,14 @@ loss1 = sqrt(0.2) * ComplexF64[1, 0, 0, 0]
 Where `dephasing_ops` accepts mode/rate pairs, each entry has the form `(v, gamma)`.
 The mode `v` should be normalized.
 
-## Mutation
+## Rates, Probabilities, And Mutation
 
-Functions ending in `!` mutate their state argument. The common examples are
-`evolve!`, `apply!`, `measure!`, `weak_measure!`, `apply_click!`, and
-`apply_noclick!`. The non-bang `evolve` returns an evolved copy.
+!!! warning "Rates vs probabilities"
+    The channel form `jump_rate(ch, s, dt)` returns a click *probability* over the
+    step `dt` (and a reusable work vector). The Majorana form `jump_rate(s, ℓ)`
+    returns an instantaneous *rate*; multiply by `dt` yourself when drawing events.
+
+!!! note "Mutation"
+    Functions ending in `!` mutate their state argument (`evolve!`, `apply!`,
+    `measure!`, `weak_measure!`, `apply_click!`, `apply_noclick!`). The non-bang
+    `evolve` returns an evolved copy.
