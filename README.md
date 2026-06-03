@@ -103,7 +103,9 @@ runner. You own the loop: evolve a step, decide measurements/jumps, accumulate
 observables. This keeps the dynamics explicit and tunable per script. The primitives
 (for both `SlaterState` and `MajoranaState`):
 
-- `measure!(s, i)` — projective occupation measurement (Born statistics, collapse).
+- Projective occupation measurement (Born statistics, collapse):
+  `measure!(s::MajoranaState, i)` measures site `i`; `measure!(qm::QuasiMode, s::SlaterState)`
+  measures a quasi-mode of a `SlaterState`.
 - `jump_rate(s, ℓ)` / `apply_click!(s, ℓ)` / `apply_noclick!(s, jumps, dt)` — linear
   quantum-jump (MCWF) building blocks; for `SlaterState` the channel forms
   `jump_rate(ch, s, dt)` / `apply_click!(ch, s, work)` / `apply_noclick!(ch, s, dt)`.

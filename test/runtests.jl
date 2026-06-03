@@ -65,6 +65,15 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test normal_correlation(from_slater) ≈ correlation_matrix(slater)
         @test anomalous_correlation(from_slater) ≈ zeros(ComplexF64, 4, 4) atol = 1e-12
 
+        # O(1) density(s, i) agrees with the full profile; ispure detects purity;
+        # and a floating-point element type is preserved by the constructor.
+        @test [density(from_slater, i) for i in 1:4] ≈ density(from_slater)
+        @test ispure(from_slater)
+        mixed = MajoranaState(thermalstate(Hermitian(Matrix(hopping(4).h)); β=0.5))
+        @test !ispure(mixed)
+        Γ32 = Float32.(covariance_matrix(from_slater))
+        @test eltype(covariance_matrix(MajoranaState(Γ32; check=false))) == Float32
+
         cmat = ComplexF64[
             0.6   0.2im
            -0.2im 0.4
@@ -166,6 +175,33 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test length(entanglement_spectrum(s2, [1])) == 1
         # mixed-state observables go through the eigenvalue path too
         @test entanglement_entropy(CorrelationState(s2), [1]) ≈ log(2) atol = 1e-8
+
+        # profile aliases and the entanglement-Hamiltonian spectrum
+        @test density_profile(s) == density(s)
+        @test correlation_profile(s, 1) == [correlation(s, 1, j) for j in 1:nmodes(s)]
+        @test entanglement_hamiltonian_spectrum(s2, [1]) ≈ [0.0] atol = 1e-8   # ν=1/2 ⇒ ε=0
+    end
+
+    @testset "Degenerate-size edge cases" begin
+        # Fully filled (N = L): product state, zero entanglement, odd parity for N=3.
+        full = SlaterState(collect(1:3), 3)
+        @test particle_number(full) == 3
+        @test density(full) ≈ [1, 1, 1]
+        @test entanglement_entropy(full, [1, 2]) ≈ 0 atol = 1e-12
+        @test parity(full) ≈ -1 atol = 1e-10
+
+        # Empty system (L = 0): observables are empty / trivial and do not error.
+        e = SlaterState(Int[], 0)
+        @test nmodes(e) == 0
+        @test particle_number(e) == 0
+        @test isempty(density(e))
+        @test entanglement_entropy(e, Int[]) ≈ 0 atol = 1e-12
+
+        me = MajoranaState(Int[])
+        @test nmodes(me) == 0
+        @test isempty(density(me))
+        @test size(covariance_matrix(me)) == (0, 0)
+        @test ispure(me)                               # vacuously pure
     end
 
     @testset "Hamiltonian & evolution" begin
@@ -194,6 +230,14 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         g = ComplexF64[1 1; 1 -1] / sqrt(2)
         evolve!(a, g); apply!(g, b, [1, 2])
         @test a.B ≈ b.B
+
+        # Gate wrapper and the vector-of-Gates apply! match raw matrix applications
+        g1 = ComplexF64[1 1; 1 -1] / sqrt(2); g2 = ComplexF64[0 1; 1 0]
+        gA = SlaterState([1], 4); gB = SlaterState([1], 4)
+        apply!([Gate(g1, [1, 2]), Gate(g2, [3, 4])], gA)
+        apply!(g1, gB, [1, 2]); apply!(g2, gB, [3, 4])
+        @test gA.B ≈ gB.B
+        @test apply!(Gate(g1, [1, 2]), SlaterState([1], 4)).B ≈ apply!(g1, SlaterState([1], 4), [1, 2]).B
     end
 
     @testset "CorrelationLindblad" begin
@@ -330,6 +374,16 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
                                                   loss_ops=[unitmode(2, 1), sqrt(1e-10) * unitmode(2, 2)],
                                                   gain_ops=[unitmode(2, 1), sqrt(1e-10) * unitmode(2, 2)])
         @test density(steadystate(multiscale_balanced)) ≈ [0.5, 0.5] atol = 1e-10
+
+        # multi-mode steady state of a coupled (H ≠ 0) dissipative chain must equal the
+        # long-time limit of evolve! (not just the analytic single-mode cases above).
+        Hms = hopping(3; pbc=true)
+        ms_lind = CorrelationLindblad(Hms; loss_ops=[sqrt(0.5) * unitmode(3, 1)],
+                                           gain_ops=[sqrt(0.3) * unitmode(3, 3)])
+        ms_ss = steadystate(ms_lind)
+        ms_evolved = CorrelationState(SlaterState(L=3, N=2, config="Z2"))
+        evolve!(ms_evolved, ms_lind, 120.0)
+        @test correlation_matrix(ms_ss) ≈ correlation_matrix(ms_evolved) atol = 1e-6
 
         cdecay = CorrelationState(ComplexF64[0.5 0.25; 0.25 0.5])
         evolve!(cdecay, deph_lind, 5.0)
@@ -669,16 +723,16 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
     end
 
     @testset "Channels & trajectories" begin
-        Random.seed!(42)
+        rng = Random.Xoshiro(42)
         L = 8
         H = hopping(L; pbc=true)
 
         # explicit MCWF step from the channel primitives (no step! wrapper)
-        function mcwf!(s, U, channels, dt)
+        function mcwf!(s, U, channels, dt, rng)
             evolve!(s, U)
             for ch in channels
                 rate, work = jump_rate(ch, s, dt)
-                if rand() < rate
+                if rand(rng) < rate
                     apply_click!(ch, s, work); normalize!(s)
                 else
                     apply_noclick!(ch, s, dt)
@@ -690,31 +744,31 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
 
         # occupation monitoring conserves N
         s = SlaterState(L=L, N=4, config="Z2")
-        for _ in 1:50; mcwf!(s, U, [dephasing(i, L; γ=1.0) for i in 1:L], 0.05); end
+        for _ in 1:50; mcwf!(s, U, [dephasing(i, L; γ=1.0) for i in 1:L], 0.05, rng); end
         @test particle_number(s) == 4
         @test isorthonormal(s)
         @test all(-1e-9 .≤ density(s) .≤ 1 + 1e-9)
 
         # hole monitoring conserves N
         sh = SlaterState(L=L, N=4, config="Z2")
-        for _ in 1:30; mcwf!(sh, U, [HoleMonitor(QuasiMode([i], ComplexF64[1], L); γ=1.0) for i in 1:L], 0.05); end
+        for _ in 1:30; mcwf!(sh, U, [HoleMonitor(QuasiMode([i], ComplexF64[1], L); γ=1.0) for i in 1:L], 0.05, rng); end
         @test particle_number(sh) == 4
         @test isorthonormal(sh)
 
         # loss -> vacuum (N non-increasing)
         sl = SlaterState(L=L, N=4, config="Z2")
-        for _ in 1:100; mcwf!(sl, U, [loss(i, L; γ=1.0) for i in 1:L], 0.05); end
+        for _ in 1:100; mcwf!(sl, U, [loss(i, L; γ=1.0) for i in 1:L], 0.05, rng); end
         @test particle_number(sl) == 0
 
         # gain -> N non-decreasing
         sg = SlaterState(L=L, N=2, config="left")
-        for _ in 1:60; mcwf!(sg, U, [gain(i, L; γ=1.0) for i in 1:L], 0.05); end
+        for _ in 1:60; mcwf!(sg, U, [gain(i, L; γ=1.0) for i in 1:L], 0.05, rng); end
         @test particle_number(sg) ≥ 2
         @test isorthonormal(sg)
     end
 
     @testset "Continuous monitoring" begin
-        Random.seed!(7)
+        rng = Random.Xoshiro(7)
         L = 8; dt = 0.05
         U = propagator(hopping(L; pbc=true), dt)
         s = SlaterState(L=L, N=4, config="Z2")
@@ -723,12 +777,41 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
             evolve!(s, U)
             for ch in chans                                       # explicit QSD step
                 qm = ch.mode
-                α = randn() * sqrt(ch.γ * dt) + (2 * density(s, qm) - 1) * ch.γ * dt
+                α = randn(rng) * sqrt(ch.γ * dt) + (2 * density(s, qm) - 1) * ch.γ * dt
                 weak_measure!(s, qm, α)
             end
         end
         @test particle_number(s) == 4
         @test isorthonormal(s)
+    end
+
+    @testset "No-click operators" begin
+        # noclick_operator / noclick_propagator are the explicit no-jump back-action
+        # builders underlying apply_noclick!/evolve_noclick! — covered directly here.
+        L = 3; dt = 0.1
+        cmode = QuasiMode([1, 2], ComplexF64[1, im] / sqrt(2), L)     # complex mode
+
+        # Occupation monitor / loss: M₀ = √(1-γdt) on the mode, identity elsewhere.
+        occ = OccupationMonitor(cmode; γ=0.7)
+        M0 = GaussianFermions.noclick_operator(occ, dt)
+        V = cmode.V; P = V * V'
+        @test Matrix(M0) ≈ (sqrt(1 - 0.7 * dt) - 1) * P + I  atol = 1e-12
+        # applying M₀ to the support reproduces apply_noclick! (before renormalization)
+        sA = SlaterState(L=L, N=1, config="left"); sB = copy(sA)
+        GaussianFermions.apply!(Matrix(M0), sA, cmode.I; normalize=false)
+        apply_noclick!(occ, sB, dt; normalize=false)               # hits the same kernel
+        @test sA.B ≈ sB.B  atol = 1e-12
+
+        # Hole monitor / gain: identity on the mode, √(1-γdt) elsewhere.
+        hol = HoleMonitor(cmode; γ=0.4)
+        Mh = GaussianFermions.noclick_operator(hol, dt)
+        a = sqrt(1 - 0.4 * dt)
+        @test Matrix(Mh) ≈ (1 - a) * P + a * I  atol = 1e-12
+
+        # noclick_propagator(G, dt) = exp(-i H_eff dt) for the effective generator.
+        H = hopping(L; pbc=true)
+        G = effective_hamiltonian(H, [loss(1, L; γ=0.5)])
+        @test noclick_propagator(G, dt) ≈ exp(-im * dt * G.Heff)  atol = 1e-12
     end
 
     @testset "No-click / non-Hermitian" begin
@@ -757,11 +840,36 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         fb = Feedback(dephasing(1, L; γ=0.5), ComplexF64[1;;], ComplexF64[1;;])
         @test apply!(fb, s, 0.1) isa Bool
         @test isorthonormal(s)
+
+        # Feedback must wire the measurement outcome to the correct unitary. Replicate
+        # its internal click / no-click branch by hand (same RNG) with nontrivial
+        # complex feedback on a 2-site complex mode, and compare the resulting states.
+        qm = QuasiMode([1, 2], ComplexF64[1, im] / sqrt(2), L)
+        Uc = ComplexF64[0 1; 1 0]                       # nontrivial unitary on a click
+        Un = ComplexF64[im 0; 0 1]                      # phase on no-click
+        fb2 = Feedback(OccupationMonitor(qm; γ=0.8), Uc, Un)
+        base = SlaterState(L=L, N=2, config="Z2")
+        sfb = copy(base); sman = copy(base)
+        clicked = apply!(fb2, sfb, 0.3; rng=Random.Xoshiro(123))
+        let ch = fb2.channel, rman = Random.Xoshiro(123)
+            rate, v = jump_rate(ch, sman, 0.3)
+            if rand(rman) < rate
+                apply_click!(ch, sman, v); normalize!(sman)
+                GaussianFermions.apply!(Uc, sman, ch.mode.I; threads=true)
+                @test clicked == true
+            else
+                apply_noclick!(ch, sman, 0.3; normalize=true)
+                GaussianFermions.apply!(Un, sman, ch.mode.I; threads=true)
+                @test clicked == false
+            end
+        end
+        @test sfb.B ≈ sman.B  atol = 1e-12
+        @test isorthonormal(sfb)
     end
 
     @testset "Trajectory averaging (manual loop)" begin
         # The library has no ensemble runner; the caller owns the averaging loop.
-        Random.seed!(11)
+        rng = Random.Xoshiro(11)
         L = 8; dt = 0.1; nsteps = 10; ntraj = 24
         U = propagator(hopping(L; pbc=true), dt)
         chans = [dephasing(i, L; γ=0.5) for i in 1:L]
@@ -772,7 +880,7 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
                 evolve!(s, U)
                 for ch in chans
                     rate, work = jump_rate(ch, s, dt)
-                    rand() < rate ? (apply_click!(ch, s, work); normalize!(s)) : apply_noclick!(ch, s, dt)
+                    rand(rng) < rate ? (apply_click!(ch, s, work); normalize!(s)) : apply_noclick!(ch, s, dt)
                 end
             end
             accn .+= density(s)

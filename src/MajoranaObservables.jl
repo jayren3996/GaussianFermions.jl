@@ -8,7 +8,12 @@
 #---------------------------------------------------------------------------------------------------
 
 density(s::MajoranaState) = real.(diag(normal_correlation(s)))
-density(s::MajoranaState, i::Integer) = density(s)[i]
+# ⟨nᵢ⟩ = (1 - Γ[i, i+L])/2 directly from the covariance (O(1); avoids rebuilding C).
+function density(s::MajoranaState, i::Integer)
+    L = nmodes(s)
+    1 ≤ i ≤ L || throw(ArgumentError("mode index $i out of range 1:$L"))
+    (1 - s.Gamma[i, i+L]) / 2
+end
 particle_number(s::MajoranaState) = sum(density(s))
 particle_number(s::MajoranaState, A) = sum(density(s, i) for i in A)
 

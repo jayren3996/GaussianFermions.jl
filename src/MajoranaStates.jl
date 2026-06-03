@@ -3,6 +3,7 @@
 #---------------------------------------------------------------------------------------------------
 export MajoranaState, covariance_matrix
 export fermion_correlations, normal_correlation, anomalous_correlation
+# `ispure`, `nmodes` are exported from States.jl; methods for MajoranaState live here.
 
 function _validate_majorana_covariance(Gamma::AbstractMatrix; check::Bool=true, atol::Real=1e-10)
     size(Gamma, 1) == size(Gamma, 2) ||
@@ -23,18 +24,44 @@ function _validate_majorana_covariance(Gamma::AbstractMatrix; check::Bool=true, 
     end
 end
 
-mutable struct MajoranaState{T<:Real} <: AbstractGaussianState{T}
+"""
+    MajoranaState{T} <: AbstractGaussianState{T}
+
+General (possibly mixed, possibly paired) fermionic Gaussian state on `L` modes,
+stored by its real antisymmetric `2L×2L` Majorana covariance matrix
+
+    Γ_ab = (i/2)⟨[ωₐ, ω_b]⟩,   ω = [x₁…x_L, p₁…p_L],  xⱼ = cⱼ+c⁺ⱼ,  pⱼ = i(cⱼ-c⁺ⱼ).
+
+`T<:AbstractFloat` is the covariance element type (`Float64` by default).
+"""
+mutable struct MajoranaState{T<:AbstractFloat} <: AbstractGaussianState{T}
     Gamma::Matrix{T}
 
-    function MajoranaState{T}(Gamma::Matrix{T}; check::Bool=true, atol::Real=1e-10) where {T<:Real}
+    function MajoranaState{T}(Gamma::Matrix{T}; check::Bool=true, atol::Real=1e-10) where {T<:AbstractFloat}
         _validate_majorana_covariance(Gamma; check, atol)
         new{T}((Gamma - transpose(Gamma)) / 2)
     end
 end
 
+"""
+    MajoranaState(Γ::AbstractMatrix; check=true, atol=1e-10)
+
+Wrap a Majorana covariance matrix `Γ` (real, antisymmetric, spectrum of `iΓ` in
+`[-1,1]`). A floating-point element type (`Float32`/`Float64`/`BigFloat`) is
+preserved; integer/other inputs are promoted to `Float64`. With `check=false` the
+physicality validation is skipped (use only for covariances you trust).
+"""
+MajoranaState(Gamma::AbstractMatrix{T}; check::Bool=true, atol::Real=1e-10) where {T<:AbstractFloat} =
+    MajoranaState{T}(Matrix{T}(Gamma); check, atol)
 MajoranaState(Gamma::AbstractMatrix; check::Bool=true, atol::Real=1e-10) =
     MajoranaState{Float64}(Matrix{Float64}(Gamma); check, atol)
 
+"""
+    MajoranaState(occ::AbstractVector{<:Integer})
+
+Product (Fock) state from an occupation vector `occ` of 0/1 entries:
+`Γ[i, i+L] = 1 - 2 occᵢ`.
+"""
 function MajoranaState(occ::AbstractVector{<:Integer})
     all(x -> x == 0 || x == 1, occ) ||
         throw(ArgumentError("occupation vector entries must be 0 or 1"))
@@ -44,8 +71,15 @@ function MajoranaState(occ::AbstractVector{<:Integer})
     MajoranaState([Z D; -D Z]; check=false)
 end
 
+"""    MajoranaState(s::SlaterState) — covariance form of a pure number-conserving state."""
 MajoranaState(s::SlaterState) = MajoranaState(CorrelationState(s))
 
+"""
+    MajoranaState(s::CorrelationState; check=true, atol=1e-10)
+
+Covariance form of a (possibly mixed) number-conserving state: builds Γ from the
+correlation matrix `Cᵢⱼ = ⟨c⁺ᵢcⱼ⟩` with zero anomalous part `Fᵢⱼ = ⟨cᵢcⱼ⟩ = 0`.
+"""
 MajoranaState(s::CorrelationState; check::Bool=true, atol::Real=1e-10) =
     MajoranaState(_majorana_covariance(correlation_matrix(s), zeros(ComplexF64, nmodes(s), nmodes(s)));
                   check, atol)
@@ -69,6 +103,17 @@ end
 nmodes(s::MajoranaState) = size(s.Gamma, 1) ÷ 2
 Base.eltype(::MajoranaState{T}) where {T} = T
 Base.copy(s::MajoranaState) = MajoranaState(copy(s.Gamma); check=false)
+
+"""
+    ispure(s::MajoranaState; tol=1e-8) -> Bool
+
+Whether the covariance state is pure: all eigenvalues of `iΓ` are `≈ ±1`
+(equivalently `Γ² ≈ -I`).
+"""
+function ispure(s::MajoranaState; tol::Real=1e-8)
+    ν = real.(eigvals(Hermitian(1im .* s.Gamma)))
+    all(x -> abs(abs(x) - 1) < tol, ν)
+end
 
 covariance_matrix(s::MajoranaState) = copy(s.Gamma)
 

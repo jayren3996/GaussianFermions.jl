@@ -107,7 +107,9 @@ _jump_increment(N::Real, v::AbstractVector) =
 
 Instantaneous click rate `⟨L†L⟩ = ℓ†(I − iΓ)ℓ` of the linear jump with Majorana
 vector `ℓ` (build `ℓ` with [`loss_jump`](@ref)/[`gain_jump`](@ref)/[`majorana_jump`](@ref)).
-The click probability over a step `dt` is `jump_rate(s, ℓ) * dt`.
+The click probability over a step `dt` is `jump_rate(s, ℓ) * dt`. (Contrast the
+`SlaterState` channel form `jump_rate(ch, s, dt)`, which returns a *probability* and
+a work vector.)
 """
 function jump_rate(s::MajoranaState, ℓ::AbstractVector)
     length(ℓ) == size(s.Gamma, 1) ||
@@ -181,7 +183,8 @@ Apply the exact weak-measurement Gaussian filter `exp(α nᵢ)` to the covarianc
 renormalize (`α → ±∞` recovers projective occupation/vacancy). For continuous
 (quantum-state-diffusion) occupation monitoring at rate `γ`, step it in a loop with
 `α = δW + (2⟨nᵢ⟩ − 1) γ dt`, `δW ~ 𝒩(0, γ dt)`; averaging over the noise reproduces
-the dephasing Lindblad `D[√γ nᵢ]`.
+the dephasing Lindblad `D[√γ nᵢ]`. (Only site occupation is supported here; unlike
+the `SlaterState` filter there is no general quasi-mode variant.)
 """
 function weak_measure!(s::MajoranaState, i::Integer, α::Real)
     L = nmodes(s)

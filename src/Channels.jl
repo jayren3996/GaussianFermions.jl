@@ -51,11 +51,20 @@ loss(i::Integer, L::Integer; γ::Real=1.0) = Loss(QuasiMode([i], ComplexF64[1], 
 """    gain(i, L; γ=1) — particle gain at site `i`."""
 gain(i::Integer, L::Integer; γ::Real=1.0) = Gain(QuasiMode([i], ComplexF64[1], L), Float64(γ))
 
-mode(ch::AbstractChannel) = ch.mode
-
 #---------------------------------------------------------------------------------------------------
 # Jump probabilities  p = γ·dt·⟨L†L⟩  and the work (mode overlaps v = ⟨d|Bₖ⟩)
+#
+# NOTE the channel form returns the click *probability* `γ dt ⟨L†L⟩` over a step
+# `dt` together with a reusable `work` vector, whereas the Majorana
+# `jump_rate(s, ℓ)` returns the instantaneous *rate* `⟨L†L⟩` (no `dt`, no work).
 #---------------------------------------------------------------------------------------------------
+"""
+    jump_rate(ch::AbstractChannel, s::SlaterState, dt) -> (probability, work)
+
+Click *probability* `γ dt ⟨L†L⟩` of channel `ch` over a step `dt`, plus the mode
+overlaps `work` (pass to [`apply_click!`](@ref)). Contrast the `MajoranaState`
+method [`jump_rate(s, ℓ)`](@ref), which returns an instantaneous rate.
+"""
 # ⟨L†L⟩ = ⟨d†d⟩ = ‖v‖²            for L = d†d (monitor) and L = d (loss)
 function jump_rate(ch::Union{OccupationMonitor,Loss}, s::SlaterState, dt::Real)
     v = inner(ch.mode, s.B)
