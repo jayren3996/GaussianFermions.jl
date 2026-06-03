@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="GaussianFermions.jl logo">
+  <title>GaussianFermions.jl</title>
+
+  <defs>
+    <!-- Core wavepacket gradient: deep indigo -> violet -> luminous teal (top-lit) -->
+    <linearGradient id="wave" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0"   stop-color="#5EEAD4"/>
+      <stop offset="0.32" stop-color="#7C6BF0"/>
+      <stop offset="0.70" stop-color="#5B3FD6"/>
+      <stop offset="1"   stop-color="#2E1F86"/>
+    </linearGradient>
+
+    <!-- Particle-hole counterpart: dimmer, cool reflection of the packet below the axis -->
+    <linearGradient id="hole" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0"   stop-color="#3A2C9E"/>
+      <stop offset="1"   stop-color="#1B1450" stop-opacity="0.55"/>
+    </linearGradient>
+
+    <!-- Soft inner luminosity for the peak -->
+    <radialGradient id="glowPeak" cx="0.5" cy="0.34" r="0.62">
+      <stop offset="0"   stop-color="#BFFCEF" stop-opacity="0.95"/>
+      <stop offset="0.45" stop-color="#7C6BF0" stop-opacity="0.30"/>
+      <stop offset="1"   stop-color="#7C6BF0" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Axis line gradient (the lattice / quantization axis) -->
+    <linearGradient id="axis" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0"   stop-color="#8B7BF2" stop-opacity="0"/>
+      <stop offset="0.18" stop-color="#8B7BF2" stop-opacity="0.85"/>
+      <stop offset="0.82" stop-color="#8B7BF2" stop-opacity="0.85"/>
+      <stop offset="1"   stop-color="#8B7BF2" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Julia-hue satellite gradients (gradient-tinted, premium) -->
+    <radialGradient id="dotRed" cx="0.35" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#FF8A84"/>
+      <stop offset="1" stop-color="#CB3C33"/>
+    </radialGradient>
+    <radialGradient id="dotGreen" cx="0.35" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#6FD46A"/>
+      <stop offset="1" stop-color="#389826"/>
+    </radialGradient>
+    <radialGradient id="dotPurple" cx="0.35" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#C79BE0"/>
+      <stop offset="1" stop-color="#9558B2"/>
+    </radialGradient>
+
+    <!-- Single soft glow used for the whole mark -->
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="3.2"/>
+    </filter>
+  </defs>
+
+  <!-- ===== Ambient halo behind the packet (soft glow, sits well on dark + light) ===== -->
+  <ellipse cx="128" cy="108" rx="70" ry="66" fill="url(#glowPeak)" filter="url(#soft)" opacity="0.62"/>
+
+  <!-- ===== Quantization / lattice axis ===== -->
+  <rect x="40" y="151" width="176" height="4" rx="2" fill="url(#axis)"/>
+
+  <!-- ===== Particle-hole counterpart: faint mirrored packet below the axis ===== -->
+  <path d="M 60 153
+           C 86 153, 98 190, 128 190
+           C 158 190, 170 153, 196 153 Z"
+        fill="url(#hole)"/>
+
+  <!-- ===== Main Gaussian wavepacket (the luminous bell) ===== -->
+  <path d="M 50 153
+           C 84 153, 98 50, 128 50
+           C 158 50, 172 153, 206 153 Z"
+        fill="url(#wave)"/>
+
+  <!-- Inner highlight crest to give the glassy app-icon sheen -->
+  <path d="M 86 132
+           C 100 92, 114 66, 128 66
+           C 142 66, 156 92, 170 132
+           C 156 112, 142 102, 128 102
+           C 114 102, 100 112, 86 132 Z"
+        fill="#BFFCEF" opacity="0.32"/>
+
+  <!-- ===== Bogoliubov node: bright particle dot at the crest ===== -->
+  <circle cx="128" cy="74" r="11" fill="#F2FFFB"/>
+  <circle cx="128" cy="74" r="11" fill="url(#glowPeak)" opacity="0.6"/>
+
+  <!-- ===== Three orbiting satellite dots: the Julia nod ===== -->
+  <!-- positioned on a gentle arc around the peak; tinted in Julia hues -->
+  <circle cx="73"  cy="94"  r="12" fill="url(#dotPurple)"/>
+  <circle cx="183" cy="94"  r="12" fill="url(#dotGreen)"/>
+  <circle cx="128" cy="34"  r="12" fill="url(#dotRed)"/>
+</svg>
