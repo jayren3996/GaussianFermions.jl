@@ -5,3 +5,4 @@
 example/.DS_Store
 
 Manifest.toml
+.worktrees/
