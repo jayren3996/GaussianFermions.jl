@@ -118,6 +118,6 @@ round(entanglement_entropy(traj, 1:4); digits=4)
 - [States](manual/states.md) and [Hamiltonians & Time Evolution](manual/hamiltonians.md)
   — model a closed system.
 - [Lindblad Dynamics](manual/lindblad.md) — deterministic open-system evolution.
-- [Quantum Trajectories](manual/trajectories.md) — monitored dynamics and
-  measurement-induced transitions.
+- [Quantum Trajectories](manual/trajectories.md) — monitored dynamics, plus the
+  [Measurement-Induced Transition](examples/measurement-induced-transition.md) example.
 - [API Reference](reference/overview.md) — signatures and mutation behavior.
