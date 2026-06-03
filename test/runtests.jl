@@ -427,4 +427,23 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test sum(res.mean.n[end]) ≈ 4 atol = 1e-6
     end
 
+    @testset "Examples" begin
+        # Smoke-test the shipped examples at tiny sizes. The `PROGRAM_FILE` guard in
+        # each file skips its heavy driver on `include`; we call the light entry
+        # points directly. This guards against API drift silently breaking examples.
+        exdir = joinpath(@__DIR__, "..", "example")
+        include(joinpath(exdir, "FreeFermion.jl"))
+        include(joinpath(exdir, "MI.jl"))
+        include(joinpath(exdir, "Dephase.jl"))
+
+        @test freefermion_demo(; L=6, ntraj=2, tspan=0.2, dt=0.05) isa EnsembleResult
+        @test mi_vs_gamma(; L=8, γ=0.5, ntraj=2, tspan=0.5, dt=0.05) isa Real
+
+        ref = lindblad_den_evo(; L=8, d=[1, 3, 1], T=0.5)
+        jmp = jump_den_evo(; L=8, d=[1, 3, 1], ntraj=4, T=0.5)
+        qsd = qsd_den_evo(; L=8, d=[1, 3, 1], ntraj=4, T=0.5)
+        @test size(ref) == size(jmp) == size(qsd) == (8, 10)
+        @test all(0 .≤ ref .≤ 1)
+    end
+
 end

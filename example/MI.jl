@@ -1,5 +1,5 @@
-include("../src/GaussianFermions.jl")
-using LinearAlgebra, Main.GaussianFermions
+using GaussianFermions
+using LinearAlgebra
 
 #--------------------------------------------------------------------------------
 # Measurement-induced behaviour: steady-state mutual information of two antipodal
@@ -32,7 +32,13 @@ function mi_vs_gamma(; L=32, γ=1.0, dt=0.05, tspan=20.0, ntraj=32)
     sum(tail) / length(tail)
 end
 
-for γ in (0.2, 0.5, 1.0, 2.0)
-    I = mi_vs_gamma(; L=32, γ=γ, ntraj=24, tspan=15.0)
-    println("γ = $γ\t⟨I(A:B)⟩ ≈ $(round(I; digits=4))")
+function main()
+    for γ in (0.2, 0.5, 1.0, 2.0)
+        I = mi_vs_gamma(; L=32, γ=γ, ntraj=24, tspan=15.0)
+        println("γ = $γ\t⟨I(A:B)⟩ ≈ $(round(I; digits=4))")
+    end
+end
+
+if abspath(PROGRAM_FILE) == @__FILE__
+    main()
 end
