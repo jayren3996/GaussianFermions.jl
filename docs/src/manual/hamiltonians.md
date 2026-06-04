@@ -43,6 +43,32 @@ round(particle_number(state); digits=8)
 `propagator(H, dt)` is cached on `H` for the last `dt`, so repeated fixed-step
 evolution avoids recomputing the matrix exponential.
 
+## Finite Model Constructors
+
+The package includes small finite constructors for common benchmarks. These are
+not a symbolic lattice DSL: they return the same dense Hamiltonian types used by
+the rest of the package.
+
+```@example hamiltonians
+ssh = ssh_chain(8; t1=1.0, t2=0.4)
+aa = aubry_andre_chain(8; J=1.0, λ=0.8, β=(sqrt(5)-1)/2, ϕ=0.0)
+kitaev = kitaev_chain(8; t=1.0, Δ=1.0, μ=0.5)
+
+(ssh_lowest = round.(energy_spectrum(ssh)[1:2]; digits=4),
+ kitaev_lowest = round(first(energy_spectrum(kitaev)); sigdigits=3))
+```
+
+For momentum-space workflows, pass a Bloch Hamiltonian function to `bloch_bands`:
+
+```@example hamiltonians
+Hk(k) = ComplexF64[
+    0                  1 + exp(-im * k)
+    1 + exp(im * k)    0
+]
+ks = range(-π, π; length=5)
+bloch_bands(Hk, ks)
+```
+
 ## BdG Hamiltonians
 
 Use `BdGHamiltonian` when pairing terms are present:
