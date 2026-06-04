@@ -91,18 +91,27 @@ energy_spectrum(H::QuadraticHamiltonian) = sort(real.(eigvals(Hermitian(Matrix(H
 energy_spectrum(H::BdGHamiltonian) = quasiparticle_energies(H)
 
 function _bloch_energy_values(H::AbstractMatrix)
-    vals = eigvals(Hermitian(Matrix{ComplexF64}(H)))
+    Hmat = Matrix{ComplexF64}(H)
+    size(Hmat, 1) == size(Hmat, 2) ||
+        throw(ArgumentError("matrix-valued Bloch Hamiltonians must be square, got $(size(Hmat))"))
+    isapprox(Hmat, Hmat'; atol=1e-10) ||
+        throw(ArgumentError("matrix-valued Bloch Hamiltonians must be Hermitian"))
+    vals = eigvals(Hermitian(Hmat))
     sort(real.(vals))
 end
 _bloch_energy_values(H::QuadraticHamiltonian) = energy_spectrum(H)
 _bloch_energy_values(H::BdGHamiltonian) = energy_spectrum(H)
+_bloch_energy_values(H) =
+    throw(ArgumentError("Hk(k) must return a Hermitian matrix, QuadraticHamiltonian, or BdGHamiltonian; got $(typeof(H))"))
 
 """
     bloch_bands(Hk, kgrid) -> Matrix{Float64}
 
 Evaluate a Bloch Hamiltonian function `Hk(k)` on `kgrid` and return a matrix whose
 rows correspond to momenta and columns correspond to sorted bands. `Hk(k)` may
-return a Hermitian matrix, `QuadraticHamiltonian`, or `BdGHamiltonian`.
+return a Hermitian matrix, `QuadraticHamiltonian`, or `BdGHamiltonian`. For BdG
+Hamiltonians, the returned bands are the non-negative quasiparticle half-spectrum,
+not the full particle-hole-symmetric Nambu spectrum.
 """
 function bloch_bands(Hk, kgrid)
     ks = collect(kgrid)

@@ -55,7 +55,7 @@ aa = aubry_andre_chain(8; J=1.0, λ=0.8, β=(sqrt(5)-1)/2, ϕ=0.0)
 kitaev = kitaev_chain(8; t=1.0, Δ=1.0, μ=0.5)
 
 (ssh_lowest = round.(energy_spectrum(ssh)[1:2]; digits=4),
- kitaev_lowest = round(first(energy_spectrum(kitaev)); digits=4))
+ kitaev_lowest = round(first(energy_spectrum(kitaev)); sigdigits=3))
 ```
 
 For momentum-space workflows, pass a Bloch Hamiltonian function to `bloch_bands`:

@@ -253,12 +253,22 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test Matrix(Hssh_pbc)[4, 1] ≈ 0.25
         @test Matrix(Hssh_pbc)[1, 4] ≈ 0.25
         @test_throws ArgumentError ssh_chain(3; pbc=true)
+        Hssh_complex = ssh_chain(4; t1=1 + 2im, t2=0.25 - 0.5im, pbc=true)
+        @test Matrix(Hssh_complex)[1, 2] ≈ 1 + 2im
+        @test Matrix(Hssh_complex)[2, 1] ≈ 1 - 2im
+        @test Matrix(Hssh_complex)[4, 1] ≈ 0.25 - 0.5im
+        @test Matrix(Hssh_complex)[1, 4] ≈ 0.25 + 0.5im
 
         Haa = aubry_andre_chain(3; J=2.0, λ=0.5, β=0.25, ϕ=0.1, pbc=false)
         expected_aa = Matrix(hopping(3; J=2.0, pbc=false).h)
         expected_aa .+= diagm(ComplexF64[0.5 * cos(2π * 0.25 * j + 0.1) for j in 1:3])
         @test Matrix(Haa) ≈ expected_aa
         @test_throws ArgumentError aubry_andre_chain(1; pbc=true)
+        Haa_complex = aubry_andre_chain(3; J=1 + 0.5im, λ=0.0, pbc=true)
+        @test Matrix(Haa_complex)[1, 2] ≈ 1 + 0.5im
+        @test Matrix(Haa_complex)[2, 1] ≈ 1 - 0.5im
+        @test Matrix(Haa_complex)[3, 1] ≈ 1 + 0.5im
+        @test Matrix(Haa_complex)[1, 3] ≈ 1 - 0.5im
 
         Hk = kitaev_chain(4; t=1.0, Δ=0.4, μ=0.2, pbc=false)
         A = zeros(ComplexF64, 4, 4)
@@ -282,6 +292,19 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test Matrix(Hk_pbc) ≈ Matrix(BdGHamiltonian(A, B))
         @test_throws ArgumentError kitaev_chain(1; pbc=true)
         @test_throws ArgumentError kitaev_chain(2; pbc=true)
+        Hk_complex = kitaev_chain(4; t=1 + 0.5im, Δ=0.25 + 0.75im, μ=0.2, pbc=true)
+        Acomplex = fill(0.0 + 0.0im, 4, 4)
+        Bcomplex = fill(0.0 + 0.0im, 4, 4)
+        for j in 1:4
+            Acomplex[j, j] = -0.2
+        end
+        for (j, l) in [(1, 2), (2, 3), (3, 4), (4, 1)]
+            Acomplex[j, l] = -(1 + 0.5im)
+            Acomplex[l, j] = -(1 - 0.5im)
+            Bcomplex[j, l] = 0.25 + 0.75im
+            Bcomplex[l, j] = -(0.25 + 0.75im)
+        end
+        @test Matrix(Hk_complex) ≈ Matrix(BdGHamiltonian(Acomplex, Bcomplex))
 
         @test_throws ArgumentError ssh_chain(0)
         @test_throws ArgumentError aubry_andre_chain(0)
@@ -308,9 +331,16 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test energy_spectrum(Hbdg_zero(0.0)) ≈ [0.0]
         @test quasiparticle_energies(Hbdg_zero(0.0)) ≈ [0.0]
         @test bloch_bands(Hbdg_zero, [-1.0, 0.0, 1.0]) ≈ reshape([1.0, 0.0, 1.0], 3, 1)
+        @test quasiparticle_energies(Hbdg_zero(1e-13)) ≈ [1e-13]
 
         bad_Hk(k) = k == 0 ? zeros(ComplexF64, 2, 2) : zeros(ComplexF64, 3, 3)
         @test_throws ArgumentError bloch_bands(bad_Hk, [0.0, 1.0])
+        nonhermitian_Hk(k) = ComplexF64[0 1; 0 0]
+        @test_throws ArgumentError bloch_bands(nonhermitian_Hk, [0.0])
+        rectangular_Hk(k) = zeros(ComplexF64, 2, 3)
+        @test_throws ArgumentError bloch_bands(rectangular_Hk, [0.0])
+        scalar_Hk(k) = k
+        @test_throws ArgumentError bloch_bands(scalar_Hk, [0.0])
     end
 
     @testset "CorrelationLindblad" begin

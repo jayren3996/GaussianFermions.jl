@@ -128,7 +128,9 @@ end
 Ground state of the quadratic Hamiltonian as a Majorana covariance state, via
 Bogoliubov/Nambu diagonalization (occupy the positive-energy Nambu modes). For a
 number-conserving `H` this is the Fermi sea (all negative single-particle orbitals
-filled).
+filled). Exact zero modes are degenerate; this routine applies the package's
+`ε > 0` occupation convention and may fail validation for some degenerate BdG
+systems. Detune or split zero modes when a definite parity sector is required.
 """
 groundstate(H::BdGHamiltonian) = _state_from_nambu(H, ε -> ε > 0 ? 1.0 : 0.0)
 groundstate(H::QuadraticHamiltonian) = groundstate(BdGHamiltonian(H))
@@ -137,7 +139,9 @@ groundstate(H::QuadraticHamiltonian) = groundstate(BdGHamiltonian(H))
     thermalstate(H::BdGHamiltonian; β) -> MajoranaState
 
 Gibbs state `ρ ∝ exp(-β Ĥ)` of a BdG Hamiltonian as a Majorana covariance state.
-`β → ∞` recovers [`groundstate`](@ref).
+When the BdG spectrum has no exact zero modes, `β → ∞` recovers
+[`groundstate`](@ref). Exact zero modes remain half occupied in the thermal
+limit, so this need not match a parity-selected ground state.
 """
 thermalstate(H::BdGHamiltonian; β::Real) = _state_from_nambu(H, ε -> 1 / (1 + exp(-β * ε)))
 
@@ -152,6 +156,5 @@ function quasiparticle_energies(H::BdGHamiltonian)
     L == 0 && return Float64[]
 
     E = sort(real.(eigvals(_nambu_hamiltonian(H))))
-    spectrum = E[end-L+1:end]
-    map(ε -> abs(ε) < 1e-12 ? 0.0 : ε, spectrum)
+    E[end-L+1:end]
 end

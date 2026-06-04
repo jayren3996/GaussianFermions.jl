@@ -43,12 +43,13 @@ gs = groundstate(H)
 
 (particle_number = round(particle_number(gs); digits=3),
  anomalous_norm  = round(norm(anomalous_correlation(gs)); digits=3),
- edge_density    = round.(density(gs)[[1, 6, 12]]; digits=3))
+ sample_density  = round.(density(gs)[[1, 6, 12]]; digits=3))
 ```
 
-The end sites carry slightly enhanced density relative to the bulk — a footprint of
-the localized edge modes. A finite-temperature state interpolates toward the
-maximally mixed state:
+The anomalous norm confirms that the ground state carries pairing correlations,
+while the sampled density is just a local observable. Use the low-lying spectrum
+above, not density alone, as the edge-mode diagnostic. A finite-temperature state
+interpolates toward the maximally mixed state:
 
 ```@example kitaev
 ρβ = thermalstate(H; β=5.0)
