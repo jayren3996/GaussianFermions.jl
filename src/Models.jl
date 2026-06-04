@@ -88,14 +88,7 @@ Dense finite-system spectrum. For `QuadraticHamiltonian`, returns the single-par
 energies. For `BdGHamiltonian`, returns the non-negative quasiparticle energies.
 """
 energy_spectrum(H::QuadraticHamiltonian) = sort(real.(eigvals(Hermitian(Matrix(H)))))
-function energy_spectrum(H::BdGHamiltonian)
-    L = nmodes(H)
-    L == 0 && return Float64[]
-
-    vals = sort(real.(eigvals(_nambu_hamiltonian(H))))
-    spectrum = vals[end-L+1:end]
-    map(x -> abs(x) < 1e-12 ? 0.0 : x, spectrum)
-end
+energy_spectrum(H::BdGHamiltonian) = quasiparticle_energies(H)
 
 function _bloch_energy_values(H::AbstractMatrix)
     vals = eigvals(Hermitian(Matrix{ComplexF64}(H)))

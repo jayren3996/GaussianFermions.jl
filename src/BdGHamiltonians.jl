@@ -144,10 +144,14 @@ thermalstate(H::BdGHamiltonian; β::Real) = _state_from_nambu(H, ε -> 1 / (1 + 
 """
     quasiparticle_energies(H::BdGHamiltonian) -> Vector{Float64}
 
-The non-negative Bogoliubov quasiparticle energies (the `≥ 0` half of the
+The non-negative Bogoliubov quasiparticle energies (the upper half of the
 particle-hole-symmetric Nambu spectrum), sorted ascending.
 """
 function quasiparticle_energies(H::BdGHamiltonian)
-    E = eigvals(_nambu_hamiltonian(H))
-    sort(E[E .≥ 0])
+    L = nmodes(H)
+    L == 0 && return Float64[]
+
+    E = sort(real.(eigvals(_nambu_hamiltonian(H))))
+    spectrum = E[end-L+1:end]
+    map(ε -> abs(ε) < 1e-12 ? 0.0 : ε, spectrum)
 end

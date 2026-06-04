@@ -306,6 +306,7 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
 
         Hbdg_zero(k) = BdGHamiltonian([0.0 k; -k 0.0])
         @test energy_spectrum(Hbdg_zero(0.0)) ≈ [0.0]
+        @test quasiparticle_energies(Hbdg_zero(0.0)) ≈ [0.0]
         @test bloch_bands(Hbdg_zero, [-1.0, 0.0, 1.0]) ≈ reshape([1.0, 0.0, 1.0], 3, 1)
 
         bad_Hk(k) = k == 0 ? zeros(ComplexF64, 2, 2) : zeros(ComplexF64, 3, 3)
