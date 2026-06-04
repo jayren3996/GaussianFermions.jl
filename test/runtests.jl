@@ -318,6 +318,14 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         Hk = kitaev_chain(4; t=1.0, Δ=0.4, μ=0.2)
         @test energy_spectrum(Hk) ≈ quasiparticle_energies(Hk)
 
+        full_bdg_spectrum = nambu_spectrum(Hk)
+        @test length(full_bdg_spectrum) == 2nmodes(Hk)
+        @test full_bdg_spectrum ≈ sort(full_bdg_spectrum)
+        @test full_bdg_spectrum ≈ -reverse(full_bdg_spectrum) atol = 1e-10
+        @test quasiparticle_spectrum(Hk) ≈ full_bdg_spectrum[nmodes(Hk)+1:end]
+        @test quasiparticle_energies(Hk) ≈ quasiparticle_spectrum(Hk)
+        @test energy_spectrum(Hk) ≈ quasiparticle_spectrum(Hk)
+
         Hbloch(k) = ComplexF64[
             0                  1 + exp(-im * k)
             1 + exp(im * k)    0
@@ -587,6 +595,15 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test norm(anomalous_correlation(gp)) > 1e-3
         @test all(abs.(abs.(real.(eigvals(Hermitian(im .* covariance_matrix(gp))))) .- 1) .< 1e-8)
         @test covariance_matrix(evolve(gp, Hpair, 0.5)) ≈ covariance_matrix(gp) atol = 1e-8
+
+        # Exact zero modes require an explicit policy.
+        Hzero = BdGHamiltonian(zeros(2, 2))
+        @test_throws ArgumentError groundstate(Hzero)
+        @test density(groundstate(Hzero; zero_mode=:empty)) ≈ [0.0]
+        @test density(groundstate(Hzero; zero_mode=:filled)) ≈ [1.0]
+        @test density(groundstate(Hzero; zero_mode=:half)) ≈ [0.5]
+        @test !ispure(groundstate(Hzero; zero_mode=:half))
+        @test_throws ArgumentError groundstate(Hzero; zero_mode=:bogus)
     end
 
     @testset "thermalstate convention (complex H)" begin
