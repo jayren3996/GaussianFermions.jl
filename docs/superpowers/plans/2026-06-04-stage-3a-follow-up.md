@@ -60,4 +60,3 @@ Documenter docs.
 - [ ] Run `julia --project=docs docs/make.jl`.
 - [ ] Run `git diff --check`.
 - [ ] Request code review before publishing or merging.
-

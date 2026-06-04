@@ -129,4 +129,3 @@ julia --project=. test/runtests.jl
 julia --project=docs docs/make.jl
 git diff --check
 ```
-
