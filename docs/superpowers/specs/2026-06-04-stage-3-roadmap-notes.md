@@ -8,12 +8,13 @@ spectral helpers without changing that identity.
 
 ## Follow-On Slices
 
-1. General observable engine:
+1. Wick/Pfaffian observable engine:
    - `expect_bilinear`
    - `expect_quadratic`
    - `pfaffian_expectation`
    - scoped Wick helpers for Majorana products
    - optional full-counting statistics once the bilinear/Pfaffian API is stable
+   - this is the next real feature slice after Stage 3A follow-up
 
 2. Optional scalability prototype:
    - benchmark current dense `:expm` paths
@@ -21,7 +22,7 @@ spectral helpers without changing that identity.
    - keep Krylov/SciML dependencies weak or extension-only
 
 3. Topology:
-   - start with one-dimensional winding/Pfaffian invariants tied to the new model helpers
+   - start with one-dimensional winding invariants tied to the new model helpers
    - defer full Chern/Z2 machinery or integrate with existing topology packages
 
 4. Trajectory ensemble runner:

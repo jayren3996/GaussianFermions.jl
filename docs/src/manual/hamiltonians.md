@@ -50,13 +50,17 @@ not a symbolic lattice DSL: they return the same dense Hamiltonian types used by
 the rest of the package.
 
 ```@example hamiltonians
-ssh = ssh_chain(8; t1=1.0, t2=0.4)
+ssh = ssh_chain(8; t1=1.0, t2=0.4, pbc=true, flux=π/8)
 aa = aubry_andre_chain(8; J=1.0, λ=0.8, β=(sqrt(5)-1)/2, ϕ=0.0)
 kitaev = kitaev_chain(8; t=1.0, Δ=1.0, μ=0.5)
 
 (ssh_lowest = round.(energy_spectrum(ssh)[1:2]; digits=4),
- kitaev_lowest = round(first(energy_spectrum(kitaev)); sigdigits=3))
+ kitaev_lowest = round(first(quasiparticle_spectrum(kitaev)); sigdigits=3))
 ```
+
+The finite constructors also accept `flux` on periodic boundary bonds. A nonzero
+`flux` with `pbc=false` is rejected so open-chain calculations cannot silently
+ignore it.
 
 For momentum-space workflows, pass a Bloch Hamiltonian function to `bloch_bands`:
 
@@ -115,12 +119,20 @@ diagonalization:
 
 ```@example hamiltonians
 gs  = groundstate(bdg)
-eps = quasiparticle_energies(bdg)
+eps = quasiparticle_spectrum(bdg)
 rho = thermalstate(bdg; β=2.0)
 (min_energy = round(minimum(eps); digits=4),
  gs_number  = round(particle_number(gs); digits=4))
 ```
 
-`groundstate(bdg)` and `thermalstate(bdg; β)` return `MajoranaState`s. For a
+`quasiparticle_spectrum(bdg)` returns the non-negative half-spectrum used by
+finite BdG workflows, while `nambu_spectrum(bdg)` returns the full
+particle-hole-symmetric Nambu spectrum. `quasiparticle_energies` remains as a
+compatibility alias.
+
+`groundstate(bdg)` and `thermalstate(bdg; β)` return `MajoranaState`s. Exact BdG
+zero modes are parity-degenerate: the default `groundstate(bdg)` throws when a
+zero mode is present. Pass `zero_mode=:empty`, `:filled`, or `:half` to make the
+choice explicit. For a
 number-conserving Hermitian single-particle Hamiltonian, `thermalstate(h; β, μ=0)`
 returns a `CorrelationState`.

@@ -30,7 +30,7 @@ evolve!(s, H, 0.75)
 Ground and thermal states come from Nambu/Bogoliubov diagonalization:
 
 ```@example bdg_pairing
-eps = quasiparticle_energies(H)
+eps = quasiparticle_spectrum(H)
 gs  = groundstate(H)
 ρβ  = thermalstate(H; β=2.0)
 

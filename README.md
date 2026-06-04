@@ -27,6 +27,8 @@ documented conventions.
 | 🌀 **Closed & open dynamics** | Unitary `QuadraticHamiltonian` / `BdGHamiltonian` evolution, plus deterministic `CorrelationLindblad` and `MajoranaLindblad` solvers. |
 | 🎲 **Monitored trajectories** | Low-level measurement, quantum-jump, and weak-measurement primitives. There is no hidden ensemble runner; you own the sampling loop. |
 | ⚛️ **Pairing / BdG** | Bogoliubov ground and thermal states, anomalous correlators, and number-non-conserving baths via raw Majorana jump vectors. |
+| 🧱 **Finite model helpers** | `ssh_chain`, `aubry_andre_chain`, and `kitaev_chain` build dense finite benchmark Hamiltonians, with optional boundary flux on periodic chains. |
+| 📊 **Spectral utilities** | `energy_spectrum`, `quasiparticle_spectrum`, `nambu_spectrum`, and `bloch_bands` cover finite and Bloch workflows without a lattice DSL. |
 | 📐 **Explicit conventions** | Fixed correlator and covariance conventions, verified against exact diagonalization. |
 | 🎯 **Finite-system focus** | Dense solvers built for precise finite-size calculations. |
 
@@ -60,6 +62,8 @@ round.(density(state); digits=3)
 | Pairing, BdG dynamics, anomalous correlators | `MajoranaState` |
 | Number-conserving quadratic Hamiltonians | `QuadraticHamiltonian` |
 | BdG Hamiltonians with pairing | `BdGHamiltonian` |
+| Common finite benchmarks | `ssh_chain`, `aubry_andre_chain`, `kitaev_chain` |
+| Finite and Bloch spectra | `energy_spectrum`, `quasiparticle_spectrum`, `nambu_spectrum`, `bloch_bands` |
 | Deterministic `U(1)` open dynamics | `CorrelationLindblad` |
 | Deterministic BdG open dynamics | `MajoranaLindblad` |
 | Monitored trajectories | compose the low-level primitives in your loop |
@@ -125,6 +129,8 @@ A = zeros(ComplexF64, 4, 4)
 B = zeros(ComplexF64, 4, 4)
 B[1, 2] = 0.3
 B[2, 1] = -0.3
+B[3, 4] = -0.2
+B[4, 3] = 0.2
 
 H = BdGHamiltonian(A, B)
 evolve!(state, H, 0.5)
@@ -139,9 +145,10 @@ Correlations follow the standard convention `Cᵢⱼ = ⟨c⁺ᵢcⱼ⟩`, `Fᵢ
 
 ```julia
 H = BdGHamiltonian(A, B)
-gs = groundstate(H)              # BCS ground state as a MajoranaState
-ε  = quasiparticle_energies(H)   # Bogoliubov spectrum (≥ 0)
-ρβ = thermalstate(H; β=2.0)      # Gibbs state; β → ∞ recovers groundstate(H)
+gs = groundstate(H)              # errors on exact zero modes unless zero_mode is set
+ε  = quasiparticle_spectrum(H)   # Bogoliubov quasiparticle spectrum
+allε = nambu_spectrum(H)         # full particle-hole-symmetric Nambu spectrum
+ρβ = thermalstate(H; β=2.0)      # Gibbs state; zero modes remain half occupied
 ```
 
 Open-system BdG dynamics use `MajoranaLindblad`, the covariance-matrix analogue of
