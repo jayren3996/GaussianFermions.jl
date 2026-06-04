@@ -304,6 +304,10 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test bands[1, :] ≈ [-2.0, 2.0]
         @test bands[2, :] ≈ [0.0, 0.0] atol = 1e-12
 
+        Hbdg_zero(k) = BdGHamiltonian([0.0 k; -k 0.0])
+        @test energy_spectrum(Hbdg_zero(0.0)) ≈ [0.0]
+        @test bloch_bands(Hbdg_zero, [-1.0, 0.0, 1.0]) ≈ reshape([1.0, 0.0, 1.0], 3, 1)
+
         bad_Hk(k) = k == 0 ? zeros(ComplexF64, 2, 2) : zeros(ComplexF64, 3, 3)
         @test_throws ArgumentError bloch_bands(bad_Hk, [0.0, 1.0])
     end
