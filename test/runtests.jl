@@ -288,6 +288,26 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test_throws ArgumentError kitaev_chain(0)
     end
 
+    @testset "Spectral helpers" begin
+        Hssh = ssh_chain(4; t1=1.0, t2=0.25)
+        @test energy_spectrum(Hssh) ≈ sort(real.(eigvals(Hermitian(Matrix(Hssh)))))
+
+        Hk = kitaev_chain(4; t=1.0, Δ=0.4, μ=0.2)
+        @test energy_spectrum(Hk) ≈ quasiparticle_energies(Hk)
+
+        Hbloch(k) = ComplexF64[
+            0                  1 + exp(-im * k)
+            1 + exp(im * k)    0
+        ]
+        bands = bloch_bands(Hbloch, [0.0, π])
+        @test size(bands) == (2, 2)
+        @test bands[1, :] ≈ [-2.0, 2.0]
+        @test bands[2, :] ≈ [0.0, 0.0] atol = 1e-12
+
+        bad_Hk(k) = k == 0 ? zeros(ComplexF64, 2, 2) : zeros(ComplexF64, 3, 3)
+        @test_throws ArgumentError bloch_bands(bad_Hk, [0.0, 1.0])
+    end
+
     @testset "CorrelationLindblad" begin
         unitmode(L, i) = (v = zeros(ComplexF64, L); v[i] = 1; v)
         @test isdefined(GaussianFermions, :steadystate)

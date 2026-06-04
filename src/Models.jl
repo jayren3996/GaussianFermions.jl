@@ -77,3 +77,44 @@ function kitaev_chain(L::Integer; t::Number=1.0, Δ::Number=1.0, μ::Real=0.0,
     end
     BdGHamiltonian(A, B)
 end
+
+export energy_spectrum, bloch_bands
+
+"""
+    energy_spectrum(H::QuadraticHamiltonian) -> Vector{Float64}
+    energy_spectrum(H::BdGHamiltonian) -> Vector{Float64}
+
+Dense finite-system spectrum. For `QuadraticHamiltonian`, returns the single-particle
+energies. For `BdGHamiltonian`, returns the non-negative quasiparticle energies.
+"""
+energy_spectrum(H::QuadraticHamiltonian) = sort(real.(eigvals(Hermitian(Matrix(H)))))
+energy_spectrum(H::BdGHamiltonian) = quasiparticle_energies(H)
+
+function _bloch_energy_values(H::AbstractMatrix)
+    vals = eigvals(Hermitian(Matrix{ComplexF64}(H)))
+    sort(real.(vals))
+end
+_bloch_energy_values(H::QuadraticHamiltonian) = energy_spectrum(H)
+_bloch_energy_values(H::BdGHamiltonian) = energy_spectrum(H)
+
+"""
+    bloch_bands(Hk, kgrid) -> Matrix{Float64}
+
+Evaluate a Bloch Hamiltonian function `Hk(k)` on `kgrid` and return a matrix whose
+rows correspond to momenta and columns correspond to sorted bands. `Hk(k)` may
+return a Hermitian matrix, `QuadraticHamiltonian`, or `BdGHamiltonian`.
+"""
+function bloch_bands(Hk, kgrid)
+    ks = collect(kgrid)
+    isempty(ks) && return zeros(Float64, 0, 0)
+    values = [_bloch_energy_values(Hk(k)) for k in ks]
+    nbands = length(first(values))
+    all(v -> length(v) == nbands, values) ||
+        throw(ArgumentError("bloch_bands requires Hk(k) to return the same number of bands for every k"))
+
+    bands = zeros(Float64, length(ks), nbands)
+    for (row, vals) in enumerate(values)
+        bands[row, :] .= vals
+    end
+    bands
+end
