@@ -20,8 +20,8 @@ nothing # hide
 Htop  = kitaev_chain(12; t=1.0, Δ=1.0, μ=0.0)   # topological
 Htriv = kitaev_chain(12; t=1.0, Δ=1.0, μ=3.0)   # trivial
 
-εtop  = energy_spectrum(Htop)
-εtriv = energy_spectrum(Htriv)
+εtop  = quasiparticle_spectrum(Htop)
+εtriv = quasiparticle_spectrum(Htriv)
 
 (topological_lowest = round.(εtop[1:3]; digits=4),
  trivial_lowest     = round.(εtriv[1:3]; digits=4))
@@ -34,8 +34,9 @@ gap of `2t`; the trivial spectrum is fully gapped.
 
 !!! note "Zero-mode degeneracy"
     Exactly at `μ = 0` the ground state is parity-degenerate, so the Nambu occupation
-    is ill-defined and `groundstate` raises an error. Evaluate it at a slightly
-    detuned point (still topological), which selects a definite-parity ground state.
+    is ill-defined and `groundstate` raises an error by default. Evaluate it at a
+    slightly detuned point (still topological), or pass `zero_mode=:empty`,
+    `:filled`, or `:half` when you want an explicit zero-mode convention.
 
 ```@example kitaev
 H = kitaev_chain(12; t=1.0, Δ=1.0, μ=0.5)   # detuned, still topological

@@ -10,6 +10,8 @@ aubry_andre_chain
 kitaev_chain
 propagator
 groundstate
+nambu_spectrum
+quasiparticle_spectrum
 quasiparticle_energies
 energy_spectrum
 bloch_bands

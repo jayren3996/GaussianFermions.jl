@@ -1,7 +1,8 @@
 #---------------------------------------------------------------------------------------------------
 # BdG / Majorana quadratic Hamiltonians
 #---------------------------------------------------------------------------------------------------
-export BdGHamiltonian, groundstate, quasiparticle_energies
+export BdGHamiltonian, groundstate
+export nambu_spectrum, quasiparticle_spectrum, quasiparticle_energies
 
 """
     BdGHamiltonian(K::AbstractMatrix; check=true, atol=1e-10)
@@ -122,18 +123,32 @@ function _state_from_nambu(H::BdGHamiltonian, weight)
 end
 
 """
-    groundstate(H::BdGHamiltonian) -> MajoranaState
-    groundstate(H::QuadraticHamiltonian) -> MajoranaState
+    groundstate(H::BdGHamiltonian; zero_mode=:error, atol=1e-10) -> MajoranaState
+    groundstate(H::QuadraticHamiltonian; zero_mode=:error, atol=1e-10) -> MajoranaState
 
 Ground state of the quadratic Hamiltonian as a Majorana covariance state, via
 Bogoliubov/Nambu diagonalization (occupy the positive-energy Nambu modes). For a
 number-conserving `H` this is the Fermi sea (all negative single-particle orbitals
-filled). Exact zero modes are degenerate; this routine applies the package's
-`ε > 0` occupation convention and may fail validation for some degenerate BdG
-systems. Detune or split zero modes when a definite parity sector is required.
+filled). Exact zero modes are degenerate; choose `zero_mode=:empty`, `:filled`, or
+`:half` to make that convention explicit. The default `zero_mode=:error` throws if
+any Nambu eigenvalue satisfies `abs(ε) ≤ atol`.
 """
-groundstate(H::BdGHamiltonian) = _state_from_nambu(H, ε -> ε > 0 ? 1.0 : 0.0)
-groundstate(H::QuadraticHamiltonian) = groundstate(BdGHamiltonian(H))
+function groundstate(H::BdGHamiltonian; zero_mode::Symbol=:error, atol::Real=1e-10)
+    zero_mode in (:error, :empty, :filled, :half) ||
+        throw(ArgumentError("zero_mode must be one of :error, :empty, :filled, or :half, got $zero_mode"))
+
+    E = nambu_spectrum(H)
+    if zero_mode == :error && any(abs.(E) .≤ atol)
+        throw(ArgumentError("BdG ground state has exact zero modes within atol=$atol; pass zero_mode=:empty, :filled, or :half"))
+    end
+
+    zero_weight = zero_mode == :filled ? 1.0 :
+                  zero_mode == :half   ? 0.5 : 0.0
+    _state_from_nambu(H, ε ->
+        abs(ε) ≤ atol ? zero_weight : ε > 0 ? 1.0 : 0.0
+    )
+end
+groundstate(H::QuadraticHamiltonian; kwargs...) = groundstate(BdGHamiltonian(H); kwargs...)
 
 """
     thermalstate(H::BdGHamiltonian; β) -> MajoranaState
@@ -146,15 +161,31 @@ limit, so this need not match a parity-selected ground state.
 thermalstate(H::BdGHamiltonian; β::Real) = _state_from_nambu(H, ε -> 1 / (1 + exp(-β * ε)))
 
 """
-    quasiparticle_energies(H::BdGHamiltonian) -> Vector{Float64}
+    nambu_spectrum(H::BdGHamiltonian) -> Vector{Float64}
 
-The non-negative Bogoliubov quasiparticle energies (the upper half of the
-particle-hole-symmetric Nambu spectrum), sorted ascending.
+The full particle-hole-symmetric Nambu spectrum, sorted ascending.
 """
-function quasiparticle_energies(H::BdGHamiltonian)
+function nambu_spectrum(H::BdGHamiltonian)
+    sort(real.(eigvals(_nambu_hamiltonian(H))))
+end
+
+"""
+    quasiparticle_spectrum(H::BdGHamiltonian) -> Vector{Float64}
+
+The non-negative Bogoliubov quasiparticle spectrum (the upper half of the sorted
+Nambu spectrum), preserving exact zero-mode multiplicity without clamping.
+"""
+function quasiparticle_spectrum(H::BdGHamiltonian)
     L = nmodes(H)
     L == 0 && return Float64[]
 
-    E = sort(real.(eigvals(_nambu_hamiltonian(H))))
+    E = nambu_spectrum(H)
     E[end-L+1:end]
 end
+
+"""
+    quasiparticle_energies(H::BdGHamiltonian) -> Vector{Float64}
+
+Compatibility alias for [`quasiparticle_spectrum`](@ref).
+"""
+quasiparticle_energies(H::BdGHamiltonian) = quasiparticle_spectrum(H)

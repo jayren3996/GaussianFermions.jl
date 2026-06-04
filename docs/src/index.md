@@ -11,7 +11,7 @@ Hamiltonian dynamics, Gaussian Lindblad dynamics, and monitored trajectory updat
 It is written for researchers who already know the physics and need a precise Julia
 interface with explicit conventions.
 
-The package has two state representations:
+The package has three state representations:
 
 - `SlaterState` stores a pure number-conserving Gaussian state by its occupied
   orbitals.
@@ -29,6 +29,8 @@ The package has two state representations:
 | Pairing, BdG dynamics, anomalous correlators | `MajoranaState` |
 | Number-conserving quadratic Hamiltonians | `QuadraticHamiltonian` |
 | BdG Hamiltonians with pairing | `BdGHamiltonian` |
+| Common finite benchmark models | `ssh_chain`, `aubry_andre_chain`, `kitaev_chain` |
+| Finite and Bloch spectra | `energy_spectrum`, `quasiparticle_spectrum`, `nambu_spectrum`, `bloch_bands` |
 | Deterministic ``U(1)`` open dynamics | `CorrelationLindblad` |
 | Deterministic BdG open dynamics | `MajoranaLindblad` |
 | Monitored trajectories | compose the low-level primitives in your loop |
@@ -66,6 +68,9 @@ round.(density(state); digits=3)
   with another codebase.
 - Read [States](manual/states.md) and
   [Hamiltonians & Time Evolution](manual/hamiltonians.md) to model a closed system.
+- Use the finite model constructors and spectral helpers in
+  [Hamiltonians & Time Evolution](manual/hamiltonians.md) for SSH, Aubry-Andre,
+  Kitaev, finite-spectrum, and Bloch-band workflows.
 - Read [Lindblad Dynamics](manual/lindblad.md) for deterministic open-system
   evolution.
 - Read [Quantum Trajectories](manual/trajectories.md) for monitored dynamics.

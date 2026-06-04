@@ -258,6 +258,11 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test Matrix(Hssh_complex)[2, 1] ≈ 1 - 2im
         @test Matrix(Hssh_complex)[4, 1] ≈ 0.25 - 0.5im
         @test Matrix(Hssh_complex)[1, 4] ≈ 0.25 + 0.5im
+        ssh_flux = π / 3
+        Hssh_flux = ssh_chain(4; t1=1.0, t2=0.25, pbc=true, flux=ssh_flux)
+        @test Matrix(Hssh_flux)[4, 1] ≈ 0.25 * exp(im * ssh_flux)
+        @test Matrix(Hssh_flux)[1, 4] ≈ 0.25 * exp(-im * ssh_flux)
+        @test_throws ArgumentError ssh_chain(4; pbc=false, flux=ssh_flux)
 
         Haa = aubry_andre_chain(3; J=2.0, λ=0.5, β=0.25, ϕ=0.1, pbc=false)
         expected_aa = Matrix(hopping(3; J=2.0, pbc=false).h)
@@ -269,6 +274,11 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test Matrix(Haa_complex)[2, 1] ≈ 1 - 0.5im
         @test Matrix(Haa_complex)[3, 1] ≈ 1 + 0.5im
         @test Matrix(Haa_complex)[1, 3] ≈ 1 - 0.5im
+        aa_flux = -π / 4
+        Haa_flux = aubry_andre_chain(3; J=2.0, λ=0.0, pbc=true, flux=aa_flux)
+        @test Matrix(Haa_flux)[3, 1] ≈ 2.0 * exp(im * aa_flux)
+        @test Matrix(Haa_flux)[1, 3] ≈ 2.0 * exp(-im * aa_flux)
+        @test_throws ArgumentError aubry_andre_chain(3; pbc=false, flux=aa_flux)
 
         Hk = kitaev_chain(4; t=1.0, Δ=0.4, μ=0.2, pbc=false)
         A = zeros(ComplexF64, 4, 4)
@@ -305,6 +315,16 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
             Bcomplex[l, j] = -(0.25 + 0.75im)
         end
         @test Matrix(Hk_complex) ≈ Matrix(BdGHamiltonian(Acomplex, Bcomplex))
+        kitaev_flux = π / 5
+        Hk_flux = kitaev_chain(4; t=1.0, Δ=0.4, μ=0.2, pbc=true, flux=kitaev_flux)
+        Aflux = copy(A)
+        Bflux = copy(B)
+        Aflux[4, 1] = -exp(im * kitaev_flux)
+        Aflux[1, 4] = -exp(-im * kitaev_flux)
+        Bflux[4, 1] = 0.4 * exp(im * kitaev_flux)
+        Bflux[1, 4] = -0.4 * exp(im * kitaev_flux)
+        @test Matrix(Hk_flux) ≈ Matrix(BdGHamiltonian(Aflux, Bflux))
+        @test_throws ArgumentError kitaev_chain(4; pbc=false, flux=kitaev_flux)
 
         @test_throws ArgumentError ssh_chain(0)
         @test_throws ArgumentError aubry_andre_chain(0)
@@ -317,6 +337,14 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
 
         Hk = kitaev_chain(4; t=1.0, Δ=0.4, μ=0.2)
         @test energy_spectrum(Hk) ≈ quasiparticle_energies(Hk)
+
+        full_bdg_spectrum = nambu_spectrum(Hk)
+        @test length(full_bdg_spectrum) == 2nmodes(Hk)
+        @test full_bdg_spectrum ≈ sort(full_bdg_spectrum)
+        @test full_bdg_spectrum ≈ -reverse(full_bdg_spectrum) atol = 1e-10
+        @test quasiparticle_spectrum(Hk) ≈ full_bdg_spectrum[nmodes(Hk)+1:end]
+        @test quasiparticle_energies(Hk) ≈ quasiparticle_spectrum(Hk)
+        @test energy_spectrum(Hk) ≈ quasiparticle_spectrum(Hk)
 
         Hbloch(k) = ComplexF64[
             0                  1 + exp(-im * k)
@@ -587,6 +615,15 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test norm(anomalous_correlation(gp)) > 1e-3
         @test all(abs.(abs.(real.(eigvals(Hermitian(im .* covariance_matrix(gp))))) .- 1) .< 1e-8)
         @test covariance_matrix(evolve(gp, Hpair, 0.5)) ≈ covariance_matrix(gp) atol = 1e-8
+
+        # Exact zero modes require an explicit policy.
+        Hzero = BdGHamiltonian(zeros(2, 2))
+        @test_throws ArgumentError groundstate(Hzero)
+        @test density(groundstate(Hzero; zero_mode=:empty)) ≈ [0.0]
+        @test density(groundstate(Hzero; zero_mode=:filled)) ≈ [1.0]
+        @test density(groundstate(Hzero; zero_mode=:half)) ≈ [0.5]
+        @test !ispure(groundstate(Hzero; zero_mode=:half))
+        @test_throws ArgumentError groundstate(Hzero; zero_mode=:bogus)
     end
 
     @testset "thermalstate convention (complex H)" begin

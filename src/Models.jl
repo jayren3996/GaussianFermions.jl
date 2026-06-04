@@ -8,15 +8,24 @@ function _check_model_length(L::Integer, name::String)
     Int(L)
 end
 
+function _boundary_phase(pbc::Bool, flux::Real, name::String)
+    pbc || iszero(flux) ||
+        throw(ArgumentError("$name requires pbc=true when flux is nonzero"))
+    exp(im * flux)
+end
+
 """
-    ssh_chain(L; t1=1.0, t2=0.5, pbc=false) -> QuadraticHamiltonian
+    ssh_chain(L; t1=1.0, t2=0.5, pbc=false, flux=0.0) -> QuadraticHamiltonian
 
 Finite Su-Schrieffer-Heeger chain with alternating nearest-neighbour hoppings.
 Bond `(j, j+1)` uses `t1` for odd `j` and `t2` for even `j`. Periodic boundaries
-require even `L` so the dimerization pattern closes consistently.
+require even `L` so the dimerization pattern closes consistently. When `pbc=true`,
+`flux` applies a phase `exp(im * flux)` to the closing boundary bond.
 """
-function ssh_chain(L::Integer; t1::Number=1.0, t2::Number=0.5, pbc::Bool=false)
+function ssh_chain(L::Integer; t1::Number=1.0, t2::Number=0.5, pbc::Bool=false,
+                   flux::Real=0.0)
     L = _check_model_length(L, "ssh_chain")
+    phase = _boundary_phase(pbc, flux, "ssh_chain")
     pbc && isodd(L) &&
         throw(ArgumentError("ssh_chain with pbc=true requires even L, got $L"))
 
@@ -24,37 +33,43 @@ function ssh_chain(L::Integer; t1::Number=1.0, t2::Number=0.5, pbc::Bool=false)
     for j in 1:L-1
         push!(edges, (j, j + 1, isodd(j) ? t1 : t2))
     end
-    pbc && push!(edges, (L, 1, t2))
+    pbc && push!(edges, (L, 1, t2 * phase))
     hopping(edges, L)
 end
 
 """
-    aubry_andre_chain(L; J=1.0, λ=1.0, β=(sqrt(5)-1)/2, ϕ=0.0, pbc=false)
+    aubry_andre_chain(L; J=1.0, λ=1.0, β=(sqrt(5)-1)/2, ϕ=0.0, pbc=false, flux=0.0)
 
 Finite Aubry-Andre chain with nearest-neighbour hopping `J` and onsite potential
-`λ cos(2π β j + ϕ)`.
+`λ cos(2π β j + ϕ)`. When `pbc=true`, `flux` applies a phase `exp(im * flux)`
+to the closing boundary bond.
 """
 function aubry_andre_chain(L::Integer; J::Number=1.0, λ::Real=1.0,
                            β::Real=(sqrt(5) - 1) / 2, ϕ::Real=0.0,
-                           pbc::Bool=false)
+                           pbc::Bool=false, flux::Real=0.0)
     L = _check_model_length(L, "aubry_andre_chain")
+    phase = _boundary_phase(pbc, flux, "aubry_andre_chain")
     pbc && L == 1 &&
         throw(ArgumentError("aubry_andre_chain with pbc=true requires L ≥ 2, got $L"))
 
     onsite = [λ * cos(2π * β * j + ϕ) for j in 1:L]
-    hopping(L; J, pbc) + chemical_potential(onsite)
+    edges = Tuple{Int,Int,Number}[(j, j + 1, J) for j in 1:L-1]
+    pbc && push!(edges, (L, 1, J * phase))
+    hopping(edges, L) + chemical_potential(onsite)
 end
 
 """
-    kitaev_chain(L; t=1.0, Δ=1.0, μ=0.0, pbc=false) -> BdGHamiltonian
+    kitaev_chain(L; t=1.0, Δ=1.0, μ=0.0, pbc=false, flux=0.0) -> BdGHamiltonian
 
 Finite spinless p-wave superconducting chain in the package BdG block convention:
 `A[j,j] = -μ`, nearest-neighbour hopping `-t`, and antisymmetric pairing block
-`B[j,j+1] = Δ`.
+`B[j,j+1] = Δ`. When `pbc=true`, `flux` applies a phase `exp(im * flux)` to the
+closing boundary hopping and pairing bonds.
 """
 function kitaev_chain(L::Integer; t::Number=1.0, Δ::Number=1.0, μ::Real=0.0,
-                      pbc::Bool=false)
+                      pbc::Bool=false, flux::Real=0.0)
     L = _check_model_length(L, "kitaev_chain")
+    phase = _boundary_phase(pbc, flux, "kitaev_chain")
     pbc && L < 3 &&
         throw(ArgumentError("kitaev_chain with pbc=true requires L ≥ 3, got $L"))
 
@@ -70,10 +85,10 @@ function kitaev_chain(L::Integer; t::Number=1.0, Δ::Number=1.0, μ::Real=0.0,
         B[j+1, j] = -Δ
     end
     if pbc && L > 1
-        A[L, 1] = -t
-        A[1, L] = -conj(t)
-        B[L, 1] = Δ
-        B[1, L] = -Δ
+        A[L, 1] = -t * phase
+        A[1, L] = -conj(t * phase)
+        B[L, 1] = Δ * phase
+        B[1, L] = -Δ * phase
     end
     BdGHamiltonian(A, B)
 end
@@ -88,7 +103,7 @@ Dense finite-system spectrum. For `QuadraticHamiltonian`, returns the single-par
 energies. For `BdGHamiltonian`, returns the non-negative quasiparticle energies.
 """
 energy_spectrum(H::QuadraticHamiltonian) = sort(real.(eigvals(Hermitian(Matrix(H)))))
-energy_spectrum(H::BdGHamiltonian) = quasiparticle_energies(H)
+energy_spectrum(H::BdGHamiltonian) = quasiparticle_spectrum(H)
 
 function _bloch_energy_values(H::AbstractMatrix)
     Hmat = Matrix{ComplexF64}(H)
