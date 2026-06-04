@@ -14,6 +14,7 @@ include("CorrelationLindblad.jl")
 # --- Majorana / BdG covariance layer ---
 include("MajoranaStates.jl")
 include("BdGHamiltonians.jl")
+include("Models.jl")
 include("MajoranaObservables.jl")
 include("MajoranaLindblad.jl")
 include("MajoranaTrajectory.jl")

@@ -240,6 +240,54 @@ spectrum_ok(s) = all(-1e-9 .≤ real.(eigvals(Hermitian(correlation_matrix(s))))
         @test apply!(Gate(g1, [1, 2]), SlaterState([1], 4)).B ≈ apply!(g1, SlaterState([1], 4), [1, 2]).B
     end
 
+    @testset "Model constructors" begin
+        Hssh = ssh_chain(4; t1=1.0, t2=0.25, pbc=false)
+        @test Matrix(Hssh) ≈ ComplexF64[
+            0    1.0  0     0
+            1.0  0    0.25  0
+            0    0.25 0     1.0
+            0    0    1.0   0
+        ]
+
+        Hssh_pbc = ssh_chain(4; t1=1.0, t2=0.25, pbc=true)
+        @test Matrix(Hssh_pbc)[4, 1] ≈ 0.25
+        @test Matrix(Hssh_pbc)[1, 4] ≈ 0.25
+        @test_throws ArgumentError ssh_chain(3; pbc=true)
+
+        Haa = aubry_andre_chain(3; J=2.0, λ=0.5, β=0.25, ϕ=0.1, pbc=false)
+        expected_aa = Matrix(hopping(3; J=2.0, pbc=false).h)
+        expected_aa .+= diagm(ComplexF64[0.5 * cos(2π * 0.25 * j + 0.1) for j in 1:3])
+        @test Matrix(Haa) ≈ expected_aa
+        @test_throws ArgumentError aubry_andre_chain(1; pbc=true)
+
+        Hk = kitaev_chain(4; t=1.0, Δ=0.4, μ=0.2, pbc=false)
+        A = zeros(ComplexF64, 4, 4)
+        B = zeros(ComplexF64, 4, 4)
+        for j in 1:4
+            A[j, j] = -0.2
+        end
+        for j in 1:3
+            A[j, j+1] = -1.0
+            A[j+1, j] = -1.0
+            B[j, j+1] = 0.4
+            B[j+1, j] = -0.4
+        end
+        @test Matrix(Hk) ≈ Matrix(BdGHamiltonian(A, B))
+
+        Hk_pbc = kitaev_chain(4; t=1.0, Δ=0.4, μ=0.2, pbc=true)
+        A[4, 1] = -1.0
+        A[1, 4] = -1.0
+        B[4, 1] = 0.4
+        B[1, 4] = -0.4
+        @test Matrix(Hk_pbc) ≈ Matrix(BdGHamiltonian(A, B))
+        @test_throws ArgumentError kitaev_chain(1; pbc=true)
+        @test_throws ArgumentError kitaev_chain(2; pbc=true)
+
+        @test_throws ArgumentError ssh_chain(0)
+        @test_throws ArgumentError aubry_andre_chain(0)
+        @test_throws ArgumentError kitaev_chain(0)
+    end
+
     @testset "CorrelationLindblad" begin
         unitmode(L, i) = (v = zeros(ComplexF64, L); v[i] = 1; v)
         @test isdefined(GaussianFermions, :steadystate)
